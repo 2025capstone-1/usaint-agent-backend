@@ -1,39 +1,21 @@
-import asyncio
-from typing import List
+from fastapi import FastAPI
 
-from langchain_core.output_parsers.openai_tools import JsonOutputToolsParser
-from langchain_openai import ChatOpenAI
-from playwright.async_api import async_playwright
+import apps.user_api.domain.auth.controller as AuthRouter
+import apps.user_api.domain.chat.controller as ChatRouter
+import apps.user_api.domain.chat_room.controller as ChatRoomRouter
+import apps.user_api.domain.schedule.controller as ScheduleRouter
+import apps.user_api.domain.usaint_account.controller as UsaintAccountRouter
+import apps.user_api.domain.user.controller as UserRouter
+from lib.database import Base, engine
 
-import lib.env
-from lib import browser
-from lib.session import Session
-from lib.type import ToolCallResult
+app = FastAPI()
 
+app.include_router(AuthRouter.router, prefix="/auth")
+app.include_router(ChatRouter.router, prefix="/chat")
+app.include_router(ChatRoomRouter.router, prefix="/chat-room")
+app.include_router(ScheduleRouter.router, prefix="/schedule")
+app.include_router(UsaintAccountRouter.router, prefix="/usaint-account")
+app.include_router(UserRouter.router, prefix="/user")
 
-async def main():
-    session = Session()
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-
-    async with async_playwright() as playwright:
-        await session.run(playwright)
-
-        # 도구 바인딩
-        tools = browser.get_browser_tools(session)
-        llm_with_tools = llm.bind_tools(tools)
-
-        chain = llm_with_tools | JsonOutputToolsParser(tools=tools)
-        result: List[ToolCallResult] = chain.invoke("네이버 홈페이지로 이동해줘")
-        print(f"result: {result}")
-        await browser.execute_tool_calls(tools, result)
-
-        result: List[ToolCallResult] = chain.invoke("현재 페이지 HTML 가져와줘.")
-        print(f"result: {result}")
-        await browser.execute_tool_calls(tools, result)
-
-        await asyncio.sleep(2)
-        await session.close()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+# initial table creation
+Base.metadata.create_all(bind=engine)

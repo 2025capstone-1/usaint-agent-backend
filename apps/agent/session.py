@@ -13,7 +13,7 @@ class Session:
         self.id = uuid4()
         pass
 
-    async def run(self, playwright: Playwright):
+    async def start(self, playwright: Playwright):
         self.chromium = playwright.chromium
         self.browser = await self.chromium.launch(headless=False)
         self.page = await self.browser.new_page()

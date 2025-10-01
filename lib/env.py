@@ -1,5 +1,6 @@
 import os
-from typing import Callable, Literal, Optional, TypeVar
+from typing import Literal
+
 from dotenv import load_dotenv
 
 # .env 파일 로드
@@ -11,13 +12,20 @@ type EnvKey = Literal[
     "LANGSMITH_ENDPOINT",
     "LANGSMITH_API_KEY",
     "LANGSMITH_PROJECT",
+    # 위는 무시.
+    "ENV",
+    "DB_USER",
+    "DB_PASSWORD",
+    "DB_HOST",
+    "DB_PORT",
+    "DB_NAME",
+    "JWT_TYPE",
+    "JWT_SECRET",
+    "JWT_ALGORITHM",
+    "ACCESS_TOKEN_TTL_MINUTES",
 ]
 
-T = TypeVar("T")
 
-
-def get_env(env_key: EnvKey, cast: Callable[[str], T] = str) -> Optional[T]:
+def get_env(env_key: EnvKey):
     result = os.getenv(env_key)
-    if result is None:
-        return result
-    return cast(result)
+    return result

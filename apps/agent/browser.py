@@ -2,8 +2,8 @@ from typing import List
 
 from langchain_core.tools import BaseTool, tool
 
-from lib.session import Session
-from lib.type import ToolCallResult
+from apps.agent.session import Session
+from apps.agent.type import ToolCallResult
 
 
 def get_browser_tools(session: Session):
@@ -18,7 +18,12 @@ def get_browser_tools(session: Session):
         """Get html source in the current page."""
         return await session.page.inner_html(selector)
 
-    return [open_url, get_html]
+    @tool
+    async def click_element(selector: str):
+        """Do click {selector} html element."""
+        return await session.page.click(selector, timeout=5000)
+
+    return [open_url, get_html, click_element]
 
 
 async def execute_tool_calls(
