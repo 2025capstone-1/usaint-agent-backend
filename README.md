@@ -21,6 +21,9 @@ GRANT ALL PRIVILEGES ON *.* to 'admin'@'%';
 FLUSH PRIVILEGES;
 ```
 ```
+git clone https://github.com/2025capstone-1/usaint-agent-backend.git
+cd usaint-agent-backend
+
 # 파이썬 uv 설치
 https://tilnote.io/en/pages/67f2927b2a14e2a1ab482f5a
 
