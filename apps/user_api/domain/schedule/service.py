@@ -1,9 +1,11 @@
 from sqlalchemy.orm import Session
-from apps.user_api.domain.schedule.dto.request import CreateScheduleRequest
+from apps.user_api.domain.schedule.dto.request import CreateScheduleRequest, UpdateScheduleRequest
 from apps.user_api.domain.schedule.entity import Schedule
+from apps.user_api.domain.schedule.exception import ScheduleNotFound,ScheduleAccessDenied
 from datetime import datetime
 from croniter import croniter 
 from lib.database import get_db
+from typing import Optional
 
 # 새로운 스케줄 생성하기
 def create_schedule(db: Session, user_id: int, request: CreateScheduleRequest) -> Schedule: 
@@ -62,3 +64,45 @@ def check_and_run_due_schedules():
             else:
                 print(f"-> '{schedule.content}'에 해당하는 작업이 없어 건너뜁니다.")                
     db.close()    
+
+# 스케줄 업데이트
+def update_schedule(db: Session, schedule_id: int, user_id: int, request: UpdateScheduleRequest) -> Optional[Schedule]:
+    """
+    특정 스케줄을 업데이트합니다.
+    """
+    schedule = db.query(Schedule).filter(Schedule.schedule_id == schedule_id).first()
+    if not schedule:
+        raise ScheduleNotFound()
+
+    # 스케줄의 소유자인지 확인
+    if schedule.user_id != user_id:
+        raise ScheduleAccessDenied()
+    
+    if request.cron is not None:
+        schedule.cron = request.cron
+    if request.content is not None:
+        schedule.content = request.content
+
+    db.commit()
+    db.refresh(schedule)
+    print(f"✅ 스케줄 ID {schedule_id}가 수정되었습니다: {schedule}")
+    return schedule
+
+# 스케줄 삭제
+def delete_schedule(db: Session, schedule_id: int, user_id: int) -> None:
+    """
+    특정 스케줄을 삭제합니다.
+    """
+    schedule = db.query(Schedule).filter(Schedule.schedule_id == schedule_id).first()
+    
+    if not schedule:
+        raise ScheduleNotFound()
+
+    # 스케줄의 소유자인지 확인
+    if schedule.user_id != user_id:
+        raise ScheduleAccessDenied()
+    
+    db.delete(schedule)
+    db.commit()
+    print(f"✅ 스케줄 ID {schedule_id}가 삭제되었습니다.")
+    return
