@@ -27,4 +27,8 @@ dependencies = [
     "passlib[bcrypt]>=1.7.4",
     "pwdlib>=0.2.1",
     "argon2-cffi>=25.1.0",
+    "ipython>=9.6.0",
+    "matplotlib>=3.10.7",
+    "mermaid-py>=0.8.0",
+    "requests>=2.32.5",
 ]
