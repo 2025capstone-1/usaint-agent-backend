@@ -36,7 +36,7 @@ async def goto(session_id: str, url: str):
     """goto url page"""
 
     session = session_manager.get_session(session_id)
-    await session.page.goto(url, wait_until="networkidle")
+    await session.page.goto(url, wait_until="domcontentloaded")
 
     return True
 
@@ -54,7 +54,7 @@ async def select_navigation_menu(session_id: str, menu_title: str):
     menu = session.page.get_by_role("link", name=menu_title)
     print(f"{menu_title}: {menu}")
     await menu.click()
-    await session.page.wait_for_load_state("networkidle", timeout=4 * 1000)
+    await session.page.wait_for_load_state("domcontentloaded", timeout=4 * 1000)
     await asyncio.sleep(2)
 
     return True
@@ -87,22 +87,48 @@ async def get_iframe_interactive_element(session_id: str):
 async def _get_iframe_interactive_element(session_id: str):
     session = session_manager.get_session(session_id)
     work_area_frame = await _get_frame(session=session)
+
+    # 인터랙션 가능한 후보 요소 수집
     interaction_element_list = await work_area_frame.query_selector_all(
-        "input, select, textarea, button, a"
+        "input, select, textarea, button, a, [role='button'], [role='input']"
     )
 
-    print(f"interaction element list: {interaction_element_list}")
+    filtered_elements_html = []
 
-    result = ""
     for handle in interaction_element_list:
         element = handle.as_element()
         if element is None:
-            continue  # ElementHandle이 아닌 경우 스킵
+            continue
 
+        # 기본 정보 가져오기
+        tag_name = await element.evaluate("(el) => el.tagName.toLowerCase()")
+        element_type = await element.evaluate("(el) => el.getAttribute('type') || ''")
+        aria_hidden = await element.evaluate("(el) => el.getAttribute('aria-hidden')")
+        is_hidden = await element.is_hidden()
+
+        # 1) 숨겨진 input 제외
+        if tag_name == "input" and element_type == "hidden":
+            continue
+
+        # 2) aria-hidden="true" 또는 display:none 등 숨겨진 요소 제외
+        if aria_hidden == "true" or is_hidden:
+            continue
+
+        # 3) 시각적 텍스트/라벨이 없는 버튼류 제거
+        has_text = await element.evaluate(
+            """(el) => {
+                const txt = el.innerText || el.getAttribute('aria-label') || el.title;
+                return txt && txt.trim().length > 0;
+            }"""
+        )
+        if tag_name in ["button", "div", "span", "a"] and not has_text:
+            continue
+
+        # outerHTML 추출
         outer_html = await element.evaluate("(el) => el.outerHTML")
-        result += f"{outer_html}\n"
+        filtered_elements_html.append(outer_html)
 
-    return result
+    return "\n".join(filtered_elements_html)
 
 
 async def _get_frame(session: Session):
@@ -120,7 +146,7 @@ async def _get_frame(session: Session):
 
     # isolatedWorkArea도 iframe일 경우, 다시 content_frame() 호출
     work_area_frame = await work_area_frame_element.content_frame()
-    await work_area_frame.wait_for_load_state("networkidle", timeout=8 * 1000)
+    await work_area_frame.wait_for_load_state("domcontentloaded", timeout=8 * 1000)
 
     return work_area_frame
 
@@ -131,8 +157,8 @@ class ClickArgs(BaseModel):
 
 
 @tool(args_schema=ClickArgs)
-async def get_iframe_interactive_element(session_id: str, selector: str):
-    """iframe에서 상호작용할 수 있는 HTML 요소들을 가져옵니다."""
+async def click_in_iframe(session_id: str, selector: str):
+    """iframe안에 있는 HTML 요소를 클릭합니다."""
     return await _click_in_iframe(session_id, selector)
 
 
@@ -141,6 +167,7 @@ async def _click_in_iframe(session_id: str, selector: str):
     session = session_manager.get_session(session_id)
     work_area_frame = await _get_frame(session)
 
+    await session.page.screenshot(path="screen.png")
     await work_area_frame.wait_for_selector(selector, timeout=4 * 1000)
     await work_area_frame.click(selector=selector, timeout=4 * 1000)
 
@@ -157,17 +184,6 @@ async def query_select(session_id: str, selector: str):
     """Find a element for the given selector"""
     session = session_manager.get_session(session_id)
     return await session.page.query_selector(selector=selector)
-
-
-@tool(args_schema=ClickArgs)
-async def click_in_iframe(session_id: str, selector: str):
-    """click html element"""
-    session = session_manager.get_session(session_id)
-    await session.page.wait_for_selector(selector, timeout=10 * 1000)
-    await session.page.click(selector=selector, timeout=4 * 1000)
-    await session.page.wait_for_load_state("networkidle")
-
-    return True
 
 
 class InsertTextArgs(BaseModel):
@@ -201,9 +217,9 @@ async def usaint_login(session: Session, id: str, password: str):
 
     await session.page.click('//*[@id="sLogin"]/div/div[1]/form/div/div[2]')
 
-    await session.page.wait_for_load_state("networkidle")
+    await session.page.wait_for_load_state("domcontentloaded")
     await asyncio.sleep(1)
-    await session.page.reload(wait_until="networkidle")
+    await session.page.reload(wait_until="domcontentloaded")
 
 
 async def main():
@@ -221,58 +237,28 @@ async def main():
         menu = session.page.get_by_role("link", name="학사관리")
         print(f"학사관리 menu: {menu}")
         await menu.click()
-        await session.page.wait_for_load_state("networkidle")
+        await session.page.wait_for_load_state("domcontentloaded")
         await asyncio.sleep(2)
 
-        menu = session.page.get_by_role("link", name="수업/출석")
-        print(f"수업/출석 menu: {menu}")
+        menu = session.page.get_by_role("link", name="수강신청/교과과정")
+        print(f"수강신청/교과과정 menu: {menu}")
         await menu.click()
-        await session.page.wait_for_load_state("networkidle")
+        await session.page.wait_for_load_state("domcontentloaded")
         await asyncio.sleep(2)
 
-        menu = session.page.get_by_role("link", name="채플정보조회")
-        print(f"채플정보조회 menu: {menu}")
+        menu = session.page.get_by_role("link", name="개인수업시간표조회")
+        print(f"개인수업시간표조회 menu: {menu}")
         await menu.click()
-        await session.page.wait_for_load_state("networkidle")
+        await session.page.wait_for_load_state("domcontentloaded")
         await asyncio.sleep(2)
 
-        # iframe 요소 선택
-        content_area_frame = await session.page.query_selector(
-            "iframe#contentAreaFrame"
-        )
-        print(f"frame element: {content_area_frame}")
+        content = await _get_iframe_text_content(session_id)
+        print(f"content: {content}")
 
-        # iframe의 실제 Frame 객체 얻기
-        frame = await content_area_frame.content_frame()
-        print(f"frame: {frame}")
+        interactive = await _get_iframe_interactive_element(session_id)
+        print(f"interactive: {interactive}")
 
-        # iframe 안에서 #isolatedWorkArea 선택
-        work_area_frame_element = await frame.query_selector("#isolatedWorkArea")
-        print(f"work area element: {work_area_frame_element}")
-
-        # isolatedWorkArea도 iframe일 경우, 다시 content_frame() 호출
-        work_area_frame = await work_area_frame_element.content_frame()
-
-        # work_area 안의 table 선택
-        table = await work_area_frame.query_selector("table")
-        print(f"table: {table}")
-
-        print(f"inner text: {await table.inner_text()}")
-
-        # work_area 안의 table 선택
-        interaction_element_list = await work_area_frame.query_selector_all(
-            "input, select, textarea, button, a"
-        )
-
-        print(f"interaction element list: {interaction_element_list}")
-
-        for handle in interaction_element_list:
-            element = handle.as_element()
-            if element is None:
-                continue  # ElementHandle이 아닌 경우 스킵
-
-            outer_html = await element.evaluate("(el) => el.outerHTML")
-            print(f"element: {outer_html}")
+        await _click_in_iframe(session_id, "#WDA7")
 
         # # locator 방식
         # content_area = session.page.frame_locator("iframe#contentAreaFrame")
@@ -282,7 +268,7 @@ async def main():
         # await search.click(timeout=5 * 1000)
 
         await asyncio.sleep(1000)
-        await session.close()
+        await session.close()  # WD9F
 
 
 if __name__ == "__main__":

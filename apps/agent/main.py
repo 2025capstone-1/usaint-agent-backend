@@ -15,11 +15,12 @@ from typing_extensions import TypedDict
 from apps.agent.prompt import get_prompt
 from apps.agent.session import session_manager
 from apps.agent.usaint import (
-    click_in_iframe,
     get_iframe_text_content,
     insert_text,
     search_menu,
     select_navigation_menu,
+    click_in_iframe,
+    get_iframe_interactive_element,
     usaint_login,
 )
 from lib.env import get_env
@@ -32,11 +33,12 @@ memory = MemorySaver()
 tools = [
     click_in_iframe,
     insert_text,
+    get_iframe_interactive_element,
     get_iframe_text_content,
     select_navigation_menu,
     search_menu,
 ]
-llm = ChatOpenAI(model="gpt-4o-mini")
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
 llm_with_tools = llm.bind_tools(tools)
 
 
@@ -94,7 +96,7 @@ async def main():
         print(f"Could not generate graph visualization: {e}")
 
     config = RunnableConfig(
-        recursion_limit=20,  # 최대 20개의 노드까지 방문. 그 이상은 RecursionError 발생
+        recursion_limit=25,  # 최대 25개의 노드까지 방문. 그 이상은 RecursionError 발생
         configurable={"thread_id": session_id},  # 스레드 ID 설정
     )
 
@@ -105,7 +107,7 @@ async def main():
         print("Logging in to USAINT...")
         await usaint_login(session, get_env("USAINT_ID"), get_env("USAINT_PASSWORD"))
 
-        question = "2025년 1학기 내 시간표 좀 보여줘"
+        question = "2025학년도 1학기 내 시간표 알려줘."
 
         # 시스템 메시지와 사용자 질문을 함께 전달
         print(f"\n{'='*50}")
