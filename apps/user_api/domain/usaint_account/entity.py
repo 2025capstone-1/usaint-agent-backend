@@ -19,13 +19,20 @@ class UsaintAccount(Base):
     )
 
     # Relationships
-    user_id = Column(Integer, ForeignKey("user.user_id"), nullable=True)
-    user = relationship("User", back_populates="usaint_accounts")
+    user_id = Column(Integer, ForeignKey("user.user_id"),
+                     nullable=False, unique=True)
+    user = relationship("User", back_populates="usaint_account")
 
     # Creation
     @classmethod
     def create(cls, id: str, password: str, user_id: int):
         return cls(id=id, password=password, user_id=user_id)
+
+    def update(self, id: str | None, password: str | None):
+        if id:
+            self.id = id
+        if password:
+            self.password = password
 
     # Utility
     def __str__(self):

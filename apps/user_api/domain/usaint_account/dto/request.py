@@ -1,10 +1,12 @@
 from __future__ import annotations
-
-from dataclasses import dataclass
-
 from pydantic import BaseModel
 
 
-@dataclass
-class UsaintAccountRequest(BaseModel):
-    pass
+class CreateUsaintAccountRequest(BaseModel):
+    id: str
+    password: str
+
+
+class UpdateUsaintAccountRequest(BaseModel):
+    id: str | None = None
+    password: str | None = None
