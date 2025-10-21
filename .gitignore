@@ -3,5 +3,4 @@
 .venv
 
 .env
-.env.sample
 .DS_Store
