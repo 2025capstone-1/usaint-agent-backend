@@ -9,7 +9,7 @@ from apps.user_api.domain.usaint_account.dto.response import UsaintAccountRespon
 from apps.user_api.domain.usaint_account import service
 from lib.database import get_db
 
-router = APIRouter(prefix="/usaint-account")
+router = APIRouter()
 router_tag = ["UsaintAccount API"]
 
 
