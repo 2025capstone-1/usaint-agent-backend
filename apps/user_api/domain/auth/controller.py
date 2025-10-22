@@ -24,4 +24,4 @@ def post_login(request: SignInRequest, db: Session = Depends(get_db)):
 @router.post("/signup", tags=router_tag)
 def post_signup(request: SignUpRequest, db: Session = Depends(get_db)):
     new_user = signup(db, request)
-    return {"result": "hello?", "data": new_user.user_id}
+    return new_user.user_id

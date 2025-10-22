@@ -24,4 +24,4 @@ async def get_user(
 ):
     print(f"current_user: {current_user}")
     user = db.query(User).filter(User.user_id == current_user.id).one()
-    return {"result": UserProfileResponse.of(user)}
+    return UserProfileResponse.of(user)
