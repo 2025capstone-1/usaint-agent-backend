@@ -27,4 +27,6 @@ dependencies = [
     "passlib[bcrypt]>=1.7.4",
     "pwdlib>=0.2.1",
     "argon2-cffi>=25.1.0",
+    "apscheduler>=3.11.0",
+    "croniter>=6.0.0"
 ]
