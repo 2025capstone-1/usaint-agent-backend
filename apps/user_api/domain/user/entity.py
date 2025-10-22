@@ -24,7 +24,9 @@ class User(Base):
     )
 
     # Relationships
-    usaint_accounts = relationship("UsaintAccount", back_populates="user")
+    usaint_account = relationship(
+        "UsaintAccount", back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
     schedules = relationship("Schedule", back_populates="user")
     chat_rooms = relationship("ChatRoom", back_populates="user")
 

@@ -23,6 +23,7 @@ type EnvKey = Literal[
     "JWT_SECRET",
     "JWT_ALGORITHM",
     "ACCESS_TOKEN_TTL_MINUTES",
+    "ENCRYPTION_KEY"
 ]
 
 
