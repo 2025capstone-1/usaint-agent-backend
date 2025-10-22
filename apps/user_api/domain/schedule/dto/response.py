@@ -8,7 +8,7 @@ from apps.user_api.domain.schedule.entity import Schedule
 
 
 class ScheduleResponse(BaseModel):
-    id: int
+    schedule_id: int
     cron: str
     content: str
     user_id: int
@@ -18,7 +18,7 @@ class ScheduleResponse(BaseModel):
     @classmethod
     def of(cls, schedule: Schedule):
         return cls(
-            id=schedule.schedule_id,
+            schedule_id=schedule.schedule_id,
             cron=schedule.cron,
             content=schedule.content,
             user_id=schedule.user_id,
