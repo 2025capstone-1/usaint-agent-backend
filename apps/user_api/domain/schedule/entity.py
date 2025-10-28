@@ -25,7 +25,8 @@ class Schedule(Base):
     # Relationships
     user_id = Column(Integer, ForeignKey("user.user_id"), nullable=True)
     user = relationship("User", back_populates="schedules")
-    chat_rooms = relationship("ChatRoom", back_populates="schedule")
+    chat_room = relationship("ChatRoom", back_populates="schedules")
+    chat_room_id = Column(Integer, ForeignKey("chat_room.chat_room_id"), nullable=True)
 
     # Creation
     @classmethod

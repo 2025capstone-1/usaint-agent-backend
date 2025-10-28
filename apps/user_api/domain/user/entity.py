@@ -28,7 +28,7 @@ class User(Base):
         "UsaintAccount", back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
     schedules = relationship("Schedule", back_populates="user")
-    chat_rooms = relationship("ChatRoom", back_populates="user")
+    chat_rooms = relationship("ChatRoom", back_populates="user", cascade="all, delete-orphan")
 
     # Creation
     @classmethod
