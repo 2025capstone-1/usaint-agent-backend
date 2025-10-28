@@ -36,6 +36,12 @@ source .venv/bin/activate
 # .env 파일 생성
 .env.sample을 참고해서 .env 파일을 만들어주세요.
 
+# 이미 db에 무언가 있는 상태에서 실행시 다음 스크립트 필수 실행
+**안하면 에러 남**
+```
+python scripts/init_db.py
+```
+
 # 실행 - DB 테이블이 자동으로 생성되며 8000번에서 실행됩니다.
 uv run uvicorn main:app --reload --port 8000
 ```
