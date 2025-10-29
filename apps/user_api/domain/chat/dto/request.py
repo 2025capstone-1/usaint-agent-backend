@@ -4,7 +4,5 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel
 
-
-@dataclass
-class ChatRequest(BaseModel):
-    pass
+class CreateChatRequest(BaseModel):
+    content: str

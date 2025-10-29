@@ -5,6 +5,5 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 
 
-@dataclass
-class ChatRoomRequest(BaseModel):
-    pass
+class CreateChatRoomRequest(BaseModel):
+    summary: str | None = None
