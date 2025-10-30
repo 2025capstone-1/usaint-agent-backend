@@ -15,12 +15,12 @@ from typing_extensions import TypedDict
 from apps.agent.prompt import get_prompt
 from apps.agent.session import session_manager
 from apps.agent.usaint import (
+    click_in_iframe,
+    get_iframe_interactive_element,
     get_iframe_text_content,
     insert_text,
     search_menu,
     select_navigation_menu,
-    click_in_iframe,
-    get_iframe_interactive_element,
     usaint_login,
 )
 from lib.env import get_env
@@ -107,7 +107,7 @@ async def main():
         print("Logging in to USAINT...")
         await usaint_login(session, get_env("USAINT_ID"), get_env("USAINT_PASSWORD"))
 
-        question = "2025학년도 1학기 내 시간표 알려줘."
+        question = "2025학년도 2학기 내 시간표 알려줘."
 
         # 시스템 메시지와 사용자 질문을 함께 전달
         print(f"\n{'='*50}")

@@ -4,3 +4,5 @@
 
 .env
 sessions
+data
+chroma_db
