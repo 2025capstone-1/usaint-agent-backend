@@ -6,13 +6,14 @@ from langchain_core.runnables.config import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langchain_teddynote import logging
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import END, START, StateGraph
+from langgraph.graph import START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from playwright.async_api import async_playwright
 from typing_extensions import TypedDict
 
 from apps.agent.prompt import get_prompt
+from apps.agent.rag import search_ssu_notice
 from apps.agent.session import session_manager
 from apps.agent.usaint import (
     click_in_iframe,
@@ -37,6 +38,7 @@ tools = [
     get_iframe_text_content,
     select_navigation_menu,
     search_menu,
+    search_ssu_notice,
 ]
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
 llm_with_tools = llm.bind_tools(tools)
@@ -107,7 +109,7 @@ async def main():
         print("Logging in to USAINT...")
         await usaint_login(session, get_env("USAINT_ID"), get_env("USAINT_PASSWORD"))
 
-        question = "2025학년도 2학기 내 시간표 알려줘."
+        question = "장학금 공지사항 찾아줘."
 
         # 시스템 메시지와 사용자 질문을 함께 전달
         print(f"\n{'='*50}")

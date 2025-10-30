@@ -1,8 +1,11 @@
-import chromadb
 import json
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any, Dict, List
+
+import chromadb
 from chromadb.utils import embedding_functions
+from langchain_core.tools import tool
+from pydantic import BaseModel, Field
 
 # 한국어 임베딩 함수 설정
 korean_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
@@ -246,6 +249,16 @@ def list_collections() -> List[str]:
     except Exception as e:
         print(f"컬렉션 목록 조회 중 오류: {e}")
         return []
+
+
+class SearchNoticeRequest(BaseModel):
+    query: str = Field(description="검색어")
+
+
+@tool(args_schema=SearchNoticeRequest)
+def search_ssu_notice(query: str):
+    """ChromaDB에서 공지사항을 검색합니다."""
+    return search_notices(query=query, n_results=3, date_weight=0.2)
 
 
 def search_notices(
