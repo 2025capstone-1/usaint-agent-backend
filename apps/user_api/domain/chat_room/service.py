@@ -25,6 +25,14 @@ def get_chat_room_by_id(db: Session, user_id: int, chat_room_id: int) -> ChatRoo
     return chat_room
 
 @transactional
+def update_chat_room_summary(db: Session, user_id: int, chat_room_id: int, summary: str) -> ChatRoom:
+    """채팅방의 제목(summary)을 업데이트합니다."""
+    chat_room = get_chat_room_by_id(db, user_id, chat_room_id)
+    chat_room.summary = summary
+    db.add(chat_room)
+    return chat_room
+
+@transactional
 def delete_chat_room(db: Session, user_id: int, chat_room_id: int):
     """채팅방을 삭제합니다."""
     chat_room = get_chat_room_by_id(db, user_id, chat_room_id)

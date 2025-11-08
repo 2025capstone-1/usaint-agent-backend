@@ -6,15 +6,21 @@ import jwt
 from jwt.exceptions import InvalidTokenError
 from socketio import AsyncServer
 from sqlalchemy.orm import Session
+from langchain_openai import ChatOpenAI
 
 from apps.agent.agent_service import agent_service
 from apps.user_api.domain.auth.exception import NotAuthenticated
 from apps.user_api.domain.auth.service import JWT_ALGORITHM, JWT_SECRET
 from apps.user_api.domain.chat.dto.response import ChatResponse
+from apps.user_api.domain.chat.entity import Chat
 from apps.user_api.domain.chat.service import create_chat, get_chats_by_room_id
-from apps.user_api.domain.chat_room.service import get_chat_room_by_id
+from apps.user_api.domain.chat_room.service import get_chat_room_by_id, update_chat_room_summary
 from apps.user_api.domain.usaint_account.entity import UsaintAccount
 from lib.database import get_db
+from lib.security import decrypt_password
+
+# 제목 생성용 LLM (빠른 응답을 위해 가벼운 모델 사용)
+title_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
 
 
 def verify_token(token: str) -> int:
@@ -180,40 +186,101 @@ def register_socket_handlers(sio: AsyncServer):
                     room=sid,
                 )
 
+                # 1-1. 첫 메시지인 경우 채팅방 제목 자동 생성
+                chat_count = db.query(Chat).filter(Chat.chat_room_id == chat_room_id).count()
+                if chat_count == 1:
+                    try:
+                        # LLM을 사용하여 짧은 제목 생성
+                        title_messages = [
+                            ("system", "당신은 채팅방 제목을 생성하는 도우미입니다. 사용자 메시지의 핵심 내용을 최대 20자 이내로 간결하게 요약하세요. 특수문자나 이모지 없이 한글로만 작성하세요."),
+                            ("user", f"다음 메시지를 요약하여 채팅방 제목을 생성해주세요: {content}")
+                        ]
+                        title_response = await title_llm.ainvoke(title_messages)
+                        generated_title = title_response.content.strip()
+
+                        # 채팅방 제목 업데이트
+                        update_chat_room_summary(db, user_id, chat_room_id, generated_title)
+                        db.commit()
+                        print(f"[Socket.io] 채팅방 제목 생성: {generated_title}")
+                    except Exception as e:
+                        print(f"[Socket.io] 채팅방 제목 생성 실패: {e}")
+                        # 제목 생성 실패는 치명적이지 않으므로 계속 진행
+
                 # 2. 유세인트 계정 정보 조회
                 usaint_account = db.query(UsaintAccount).filter(
                     UsaintAccount.user_id == user_id
                 ).first()
 
                 usaint_id = usaint_account.id if usaint_account else None
-                usaint_password = usaint_account.password if usaint_account else None
+                # 비밀번호 복호화
+                usaint_password = decrypt_password(usaint_account.password) if usaint_account and usaint_account.password else None
 
-                # 3. 에이전트 호출
-                agent_response_content = await agent_service.process_message(
-                    user_id=user_id,
+                # 3. 에이전트 스트리밍 호출
+                async for event in agent_service.process_message_stream(
+                    chat_room_id=chat_room_id,
                     message=content,
                     usaint_id=usaint_id,
                     usaint_password=usaint_password
-                )
+                ):
+                    event_type = event.get("type")
 
-                # 4. 에이전트 응답 저장
-                agent_chat = create_chat(
-                    db=db,
-                    user_id=user_id,
-                    chat_room_id=chat_room_id,
-                    content=agent_response_content,
-                    sender="agent",
-                )
-                db.commit()
-                db.refresh(agent_chat)
+                    # 툴 호출 시작 이벤트
+                    if event_type == "tool_start":
+                        tool_message = event.get("message")
+                        tool_name = event.get("tool_name")
 
-                # 에이전트 응답 전송
-                agent_chat_response = ChatResponse.from_entity(agent_chat)
-                await sio.emit(
-                    "receive_message",
-                    agent_chat_response.model_dump(mode="json"),
-                    room=sid,
-                )
+                        # DB에 툴 상태 메시지 저장
+                        tool_chat = create_chat(
+                            db=db,
+                            user_id=user_id,
+                            chat_room_id=chat_room_id,
+                            content=tool_message,
+                            sender="agent",
+                            type="tool_status",
+                        )
+                        db.commit()
+                        db.refresh(tool_chat)
+
+                        # 실시간으로 툴 상태 전송
+                        tool_chat_response = ChatResponse.from_entity(tool_chat)
+                        await sio.emit(
+                            "receive_message",
+                            tool_chat_response.model_dump(mode="json"),
+                            room=sid,
+                        )
+
+                        print(f"[Socket.io] 툴 실행: {tool_name} - {tool_message}")
+
+                    # 에이전트 최종 응답 이벤트
+                    elif event_type == "agent_message":
+                        agent_content = event.get("content")
+
+                        # DB에 에이전트 응답 저장
+                        agent_chat = create_chat(
+                            db=db,
+                            user_id=user_id,
+                            chat_room_id=chat_room_id,
+                            content=agent_content,
+                            sender="agent",
+                        )
+                        db.commit()
+                        db.refresh(agent_chat)
+
+                        # 에이전트 응답 전송
+                        agent_chat_response = ChatResponse.from_entity(agent_chat)
+                        await sio.emit(
+                            "receive_message",
+                            agent_chat_response.model_dump(mode="json"),
+                            room=sid,
+                        )
+
+                        print(f"[Socket.io] 에이전트 응답 전송 완료")
+
+                    # 에러 이벤트
+                    elif event_type == "error":
+                        error_message = event.get("message")
+                        await sio.emit("error", {"message": error_message}, room=sid)
+                        print(f"[Socket.io] 에이전트 오류: {error_message}")
 
                 print(
                     f"[Socket.io] 메시지 처리 완료: user_id={user_id}, chat_room_id={chat_room_id}"
