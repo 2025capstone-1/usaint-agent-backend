@@ -11,7 +11,7 @@ import apps.user_api.domain.chat_room.controller as ChatRoomRouter
 import apps.user_api.domain.schedule.controller as ScheduleRouter
 import apps.user_api.domain.usaint_account.controller as UsaintAccountRouter
 import apps.user_api.domain.user.controller as UserRouter
-from apps.agent.session_manager import session_manager
+from apps.agent.agent_service import agent_service
 from apps.user_api.domain.chat.socket_handler import register_socket_handlers
 from apps.user_api.domain.schedule.service import check_and_run_due_schedules
 from lib.database import Base, engine
@@ -26,9 +26,9 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     print("스케줄러가 시작되었습니다.")
 
-    # 2. SessionManager 초기화
-    await session_manager.initialize()
-    print("SessionManager가 초기화되었습니다.")
+    # 2. AgentService 초기화
+    await agent_service.initialize()
+    print("AgentService가 초기화되었습니다.")
 
     yield # yield 이후의 코드는 앱 종료 시 실행됨
 
@@ -37,9 +37,9 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown()
     print("스케줄러가 종료되었습니다.")
 
-    # 2. SessionManager 종료
-    await session_manager.shutdown()
-    print("SessionManager가 종료되었습니다.")
+    # 2. AgentService 종료
+    await agent_service.shutdown()
+    print("AgentService가 종료되었습니다.")
 
 # FastAPI 앱을 생성할 때 lifespan을 등록.
 app = FastAPI(lifespan=lifespan)

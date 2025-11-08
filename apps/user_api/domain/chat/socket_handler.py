@@ -13,6 +13,7 @@ from apps.user_api.domain.auth.service import JWT_ALGORITHM, JWT_SECRET
 from apps.user_api.domain.chat.dto.response import ChatResponse
 from apps.user_api.domain.chat.service import create_chat, get_chats_by_room_id
 from apps.user_api.domain.chat_room.service import get_chat_room_by_id
+from apps.user_api.domain.usaint_account.entity import UsaintAccount
 from lib.database import get_db
 
 
@@ -179,12 +180,23 @@ def register_socket_handlers(sio: AsyncServer):
                     room=sid,
                 )
 
-                # 2. 에이전트 호출
+                # 2. 유세인트 계정 정보 조회
+                usaint_account = db.query(UsaintAccount).filter(
+                    UsaintAccount.user_id == user_id
+                ).first()
+
+                usaint_id = usaint_account.id if usaint_account else None
+                usaint_password = usaint_account.password if usaint_account else None
+
+                # 3. 에이전트 호출
                 agent_response_content = await agent_service.process_message(
-                    user_id=user_id, message=content
+                    user_id=user_id,
+                    message=content,
+                    usaint_id=usaint_id,
+                    usaint_password=usaint_password
                 )
 
-                # 3. 에이전트 응답 저장
+                # 4. 에이전트 응답 저장
                 agent_chat = create_chat(
                     db=db,
                     user_id=user_id,
