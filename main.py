@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 
 import socketio
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -12,17 +13,39 @@ import apps.user_api.domain.schedule.controller as ScheduleRouter
 import apps.user_api.domain.usaint_account.controller as UsaintAccountRouter
 import apps.user_api.domain.user.controller as UserRouter
 from apps.agent.agent_service import agent_service
+from apps.agent.session import session_manager
 from apps.user_api.domain.chat.socket_handler import register_socket_handlers
 from apps.user_api.domain.schedule.service import check_and_run_due_schedules
 from lib.database import Base, engine
 
-scheduler = BackgroundScheduler(timezone='Asia/Seoul')
+scheduler = BackgroundScheduler(timezone="Asia/Seoul")
+
+
+def cleanup_inactive_sessions_job():
+    """비활성 세션을 정리하는 스케줄러 작업 (동기 래퍼)"""
+    try:
+        # BackgroundScheduler는 동기 함수만 지원하므로 asyncio.run 사용
+        print(f"clean up inactive session job!")
+        asyncio.run(session_manager.cleanup_inactive_sessions(timeout_seconds=60))
+    except Exception as e:
+        print(f"[Scheduler] 세션 정리 작업 중 오류: {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 앱 시작 시 실행할 코드
     # 1. 스케줄러 시작
-    scheduler.add_job(check_and_run_due_schedules, 'interval', minutes=1, id="main_scheduler_job")
+    scheduler.add_job(
+        check_and_run_due_schedules, "interval", minutes=1, id="main_scheduler_job"
+    )
+    scheduler.add_job(
+        cleanup_inactive_sessions_job,
+        "interval",
+        minutes=1,  # 2분마다 실행 (충분한 실행 시간 확보)
+        id="session_cleanup_job",
+        coalesce=True,  # 밀린 작업은 한 번만 실행
+        max_instances=1,  # 동시 실행 인스턴스 1개로 제한
+    )
     scheduler.start()
     print("스케줄러가 시작되었습니다.")
 
@@ -30,7 +53,7 @@ async def lifespan(app: FastAPI):
     await agent_service.initialize()
     print("AgentService가 초기화되었습니다.")
 
-    yield # yield 이후의 코드는 앱 종료 시 실행됨
+    yield  # yield 이후의 코드는 앱 종료 시 실행됨
 
     # 앱 종료 시 실행할 코드
     # 1. 스케줄러 종료
@@ -40,6 +63,7 @@ async def lifespan(app: FastAPI):
     # 2. AgentService 종료
     await agent_service.shutdown()
     print("AgentService가 종료되었습니다.")
+
 
 # FastAPI 앱을 생성할 때 lifespan을 등록.
 app = FastAPI(lifespan=lifespan)
