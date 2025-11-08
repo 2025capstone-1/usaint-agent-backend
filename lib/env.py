@@ -12,6 +12,8 @@ type EnvKey = Literal[
     "LANGSMITH_ENDPOINT",
     "LANGSMITH_API_KEY",
     "LANGSMITH_PROJECT",
+    "USAINT_ID",
+    "USAINT_PASSWORD"
     # 위는 무시.
     "ENV",
     "DB_USER",
