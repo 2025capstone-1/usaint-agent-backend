@@ -1,20 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date
+from datetime import datetime
 
 from pydantic import BaseModel
 
 from apps.user_api.domain.user.entity import User
 
 
-@dataclass
 class UserProfileResponse(BaseModel):
     id: int
     username: str
     email: str
-    created_at: date
+    created_at: datetime
 
+    @staticmethod
     def of(user: User):
         return UserProfileResponse(
             id=user.user_id,
