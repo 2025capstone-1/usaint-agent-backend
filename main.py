@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 import apps.user_api.domain.auth.controller as AuthRouter
 import apps.user_api.domain.chat.controller as ChatRouter
@@ -29,6 +30,15 @@ async def lifespan(app: FastAPI):
 
 # FastAPI 앱을 생성할 때 lifespan을 등록.
 app = FastAPI(lifespan=lifespan)
+
+# CORS 설정 - 모든 출처 허용
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 모든 출처 허용
+    allow_credentials=True,
+    allow_methods=["*"],  # 모든 HTTP 메서드 허용
+    allow_headers=["*"],  # 모든 헤더 허용
+)
 
 app.include_router(AuthRouter.router, prefix="/auth")
 app.include_router(ChatRouter.router, prefix="/chat")
