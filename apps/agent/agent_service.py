@@ -73,7 +73,18 @@ class AgentService:
 
         # chatbot 노드 정의
         async def chatbot(state: State):
-            response = await self.llm_with_tools.ainvoke(state["messages"])
+            from langchain_core.messages import SystemMessage
+
+            # 시스템 프롬프트가 없으면 추가
+            messages = list(state["messages"])
+            has_system = any(isinstance(msg, SystemMessage) for msg in messages)
+
+            if not has_system:
+                # 첫 메시지면 시스템 프롬프트 추가
+                session_id = state.get("session_id", "")
+                messages = [SystemMessage(content=get_prompt(session_id))] + messages
+
+            response = await self.llm_with_tools.ainvoke(messages)
             return {"messages": [response]}
 
         # 노드 추가
@@ -112,6 +123,76 @@ class AgentService:
     def _get_session_id(self, chat_room_id: int) -> str:
         """chat_room_id를 session_id로 변환"""
         return f"chatroom_{chat_room_id}"
+
+    def clear_memory(self, chat_room_id: int):
+        """특정 채팅방의 대화 메모리를 초기화"""
+        session_id = self._get_session_id(chat_room_id)
+        try:
+            if hasattr(self.memory, 'storage'):
+                thread_key = (session_id,)
+                if thread_key in self.memory.storage:
+                    del self.memory.storage[thread_key]
+                    print(f"[AgentService] 채팅방 {chat_room_id}의 메모리 초기화 완료")
+                    return True
+            return False
+        except Exception as e:
+            print(f"[AgentService] 메모리 초기화 실패: {e}")
+            return False
+
+    def _validate_and_fix_memory(self, session_id: str) -> bool:
+        """
+        메모리에서 불완전한 tool_calls를 감지하고 수정합니다.
+
+        Returns:
+            bool: 메모리가 수정되었으면 True, 그렇지 않으면 False
+        """
+        try:
+            if not hasattr(self.memory, 'storage'):
+                return False
+
+            thread_key = (session_id,)
+            if thread_key not in self.memory.storage:
+                return False
+
+            # 메모리에서 상태 가져오기
+            checkpoint = self.memory.storage[thread_key]
+            if not checkpoint or 'channel_values' not in checkpoint:
+                return False
+
+            channel_values = checkpoint['channel_values']
+            if 'messages' not in channel_values:
+                return False
+
+            messages = channel_values['messages']
+            if not messages:
+                return False
+
+            # 마지막 메시지 확인
+            last_message = messages[-1]
+
+            # AIMessage이면서 tool_calls가 있는지 확인
+            from langchain_core.messages import AIMessage, ToolMessage
+
+            if isinstance(last_message, AIMessage) and hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+                # tool_calls가 있는데 다음 메시지가 ToolMessage인지 확인
+                # 마지막이 AIMessage(with tool_calls)면 ToolMessage가 없는 것
+                print(f"[AgentService] 불완전한 tool_calls 감지: {len(last_message.tool_calls)}개")
+
+                # 불완전한 AIMessage 제거
+                messages.pop()
+                checkpoint['channel_values']['messages'] = messages
+                self.memory.storage[thread_key] = checkpoint
+
+                print(f"[AgentService] 불완전한 메시지 제거 완료 (session: {session_id})")
+                return True
+
+            return False
+
+        except Exception as e:
+            print(f"[AgentService] 메모리 검증 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
 
     def _generate_tool_message(self, tool_name: str, tool_args: dict) -> str:
         """툴 이름과 인자를 기반으로 사용자 친화적인 메시지 생성"""
@@ -188,6 +269,14 @@ class AgentService:
             # 채팅방별 세션 조회/생성
             session = session_manager.get_session(session_id)
 
+            # 세션 활동 시간 업데이트
+            session.update_activity()
+
+            # 메모리 검증 및 수정 (불완전한 tool_calls 제거)
+            was_fixed = self._validate_and_fix_memory(session_id)
+            if was_fixed:
+                print(f"[AgentService] 메모리 상태 복구 완료")
+
             # 세션이 시작되지 않았다면 시작
             if session.page is None:
                 await session.start(self.playwright)
@@ -210,52 +299,75 @@ class AgentService:
             }
 
             # 스트리밍 실행
-            async for event in self.graph.astream(
-                {
-                    "session_id": session_id,
-                    "messages": [
-                        ("system", get_prompt(session_id)),
-                        ("user", message)
-                    ],
-                },
-                config=config,
-            ):
-                for value in event.values():
-                    if "messages" in value and value["messages"]:
-                        last_message = value["messages"][-1]
+            try:
+                async for event in self.graph.astream(
+                    {
+                        "session_id": session_id,
+                        "messages": [("user", message)],  # 시스템 메시지는 그래프 내부에서 관리
+                    },
+                    config=config,
+                ):
+                    for value in event.values():
+                        if "messages" in value and value["messages"]:
+                            last_message = value["messages"][-1]
 
-                        # AIMessage이면서 tool_calls가 있는 경우 (툴 호출)
-                        if isinstance(last_message, AIMessage) and hasattr(last_message, 'tool_calls') and last_message.tool_calls:
-                            for tool_call in last_message.tool_calls:
-                                # tool_call은 딕셔너리 또는 객체일 수 있음
-                                if isinstance(tool_call, dict):
-                                    tool_name = tool_call.get("name", "알 수 없는 도구")
-                                    tool_args = tool_call.get("args", {})
-                                else:
-                                    # 객체인 경우 속성으로 접근
-                                    tool_name = getattr(tool_call, "name", "알 수 없는 도구")
-                                    tool_args = getattr(tool_call, "args", {})
+                            # AIMessage이면서 tool_calls가 있는 경우 (툴 호출)
+                            if isinstance(last_message, AIMessage) and hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+                                for tool_call in last_message.tool_calls:
+                                    # tool_call은 딕셔너리 또는 객체일 수 있음
+                                    if isinstance(tool_call, dict):
+                                        tool_name = tool_call.get("name", "알 수 없는 도구")
+                                        tool_args = tool_call.get("args", {})
+                                    else:
+                                        # 객체인 경우 속성으로 접근
+                                        tool_name = getattr(tool_call, "name", "알 수 없는 도구")
+                                        tool_args = getattr(tool_call, "args", {})
 
-                                # 툴 인자를 기반으로 구체적인 메시지 생성
-                                tool_message = self._generate_tool_message(tool_name, tool_args)
+                                    # 툴 인자를 기반으로 구체적인 메시지 생성
+                                    tool_message = self._generate_tool_message(tool_name, tool_args)
 
-                                # 디버깅용 로그
-                                print(f"[AgentService] 툴 호출: {tool_name}, 인자: {tool_args}")
+                                    # 디버깅용 로그
+                                    print(f"[AgentService] 툴 호출: {tool_name}, 인자: {tool_args}")
 
+                                    yield {
+                                        "type": "tool_start",
+                                        "tool_name": tool_name,
+                                        "message": tool_message
+                                    }
+
+                            # AIMessage이면서 content가 있는 경우 (최종 응답)
+                            elif isinstance(last_message, AIMessage) and last_message.content:
                                 yield {
-                                    "type": "tool_start",
-                                    "tool_name": tool_name,
-                                    "message": tool_message
+                                    "type": "agent_message",
+                                    "content": last_message.content
                                 }
 
-                        # AIMessage이면서 content가 있는 경우 (최종 응답)
-                        elif isinstance(last_message, AIMessage) and last_message.content:
-                            yield {
-                                "type": "agent_message",
-                                "content": last_message.content
-                            }
+                            # ToolMessage는 무시 (내부 처리용)
 
-                        # ToolMessage는 무시 (내부 처리용)
+            except Exception as stream_error:
+                # 스트리밍 중 에러 발생 시 메모리 상태 정리
+                error_msg = str(stream_error)
+                print(f"[AgentService] 스트리밍 오류 발생: {error_msg}")
+
+                # OpenAI API 400 에러 (tool_calls 관련 에러)인 경우 메모리 초기화
+                if "400" in error_msg or "tool_call" in error_msg.lower():
+                    print(f"[AgentService] tool_calls 에러 감지, 메모리 초기화 시도")
+                    self.clear_memory(chat_room_id)
+
+                    # 사용자에게 알림
+                    yield {
+                        "type": "error",
+                        "message": "대화 기록에 문제가 발생하여 초기화했습니다. 다시 시도해주세요."
+                    }
+                else:
+                    # 다른 에러는 그대로 전달
+                    yield {
+                        "type": "error",
+                        "message": f"오류가 발생했습니다: {error_msg}"
+                    }
+
+                # 에러를 yield로 전달했으므로 raise하지 않음
+                return
 
         except Exception as e:
             print(f"[AgentService] 메시지 처리 중 오류: {e}")

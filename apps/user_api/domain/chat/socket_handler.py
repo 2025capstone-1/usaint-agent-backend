@@ -22,6 +22,9 @@ from lib.security import decrypt_password
 # 제목 생성용 LLM (빠른 응답을 위해 가벼운 모델 사용)
 title_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
 
+# 채팅방별 에이전트 처리 중 상태 추적
+processing_rooms = set()
+
 
 def verify_token(token: str) -> int:
     """JWT 토큰을 검증하고 user_id를 반환합니다."""
@@ -145,6 +148,7 @@ def register_socket_handlers(sio: AsyncServer):
     @sio.event
     async def send_message(sid, data):
         """메시지 전송 이벤트"""
+        chat_room_id = None  # finally 블록에서 사용하기 위해 초기화
         try:
             chat_room_id = data.get("chat_room_id")
             content = data.get("content")
@@ -164,6 +168,23 @@ def register_socket_handlers(sio: AsyncServer):
             if not user_id:
                 await sio.emit("error", {"message": "인증되지 않은 사용자입니다."}, room=sid)
                 return
+
+            # 이미 처리 중인 채팅방인지 확인
+            if chat_room_id in processing_rooms:
+                await sio.emit(
+                    "error",
+                    {"message": "이미 처리 중인 요청이 있습니다. 잠시 후 다시 시도해주세요."},
+                    room=sid,
+                )
+                return
+
+            # 처리 중 상태로 설정
+            processing_rooms.add(chat_room_id)
+            await sio.emit(
+                "agent_processing_start",
+                {"chat_room_id": chat_room_id},
+                room=sid,
+            )
 
             db: Session = next(get_db())
             try:
@@ -292,3 +313,13 @@ def register_socket_handlers(sio: AsyncServer):
         except Exception as e:
             await sio.emit("error", {"message": f"메시지 처리 중 오류: {str(e)}"}, room=sid)
             print(f"[Socket.io] send_message 오류: {e} (sid={sid})")
+        finally:
+            # 처리 완료 상태로 변경
+            if chat_room_id is not None:
+                if chat_room_id in processing_rooms:
+                    processing_rooms.remove(chat_room_id)
+                await sio.emit(
+                    "agent_processing_end",
+                    {"chat_room_id": chat_room_id},
+                    room=sid,
+                )

@@ -27,13 +27,17 @@ def get_prompt(session_id: str):
 
 4. **학기 이동이 필요한 경우**:
    - 학기 순서: [1학기, 여름학기, 2학기, 겨울학기]
-   - 과거 학기로 이동: '이전학기' 버튼 클릭
-   - 미래 학기로 이동: '다음학기' 버튼 클릭
+   - **학기 이동 절차**:
+     a. get_iframe_interactive_element로 페이지의 버튼 요소들을 먼저 확인
+     b. "이전학기" 또는 "다음학기" 텍스트가 있는 버튼의 selector 찾기
+     c. 해당 selector로 click_in_iframe 실행
    - **매번 이동 후 get_iframe_interactive_element로 학기 정보를 확인**하고, 목표 학기에 도달하면 **즉시 이동을 멈추세요**
+   - **중요**: 버튼 ID를 추측하지 말고, 반드시 get_iframe_interactive_element로 실제 요소를 확인한 후 클릭하세요
 
 5. **주의사항**:
    - 이미 올바른 학기 화면이라면 절대 학기 이동 버튼을 누르지 마세요
    - 학기 이동은 필요할 때만 최소한으로 수행하세요
+   - 존재하지 않는 ID(예: #previousSemesterButton)를 사용하지 마세요
 
 
 ## 🔍 CSS 셀렉터 작성 가이드
