@@ -43,7 +43,11 @@ class UpdateScheduleRequest(ScheduleRequest):
 
     @field_validator("cron")
     @classmethod
-    def validate_cron(cls, v: str) -> str:
+    def validate_cron(cls, v: Optional[str]) -> Optional[str]:
+        # cron이 none일 수도 있으므로 체크 - content만 업데이트할 때 필요
+        if v is None :
+            return v
+        
         if not croniter.is_valid(v):
             raise ValueError(f"Invalid cron expression: {v}")
         return v
