@@ -29,5 +29,7 @@ dependencies = [
     "argon2-cffi>=25.1.0",
     "cryptography~=42.0.8",
     "apscheduler>=3.11.0",
-    "croniter>=6.0.0"
+    "croniter>=6.0.0",
+    "python-socketio>=5.10.0",
+    "python-socketio[asyncio]>=5.10.0"
 ]

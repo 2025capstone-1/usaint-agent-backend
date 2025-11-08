@@ -1,48 +1,47 @@
-import asyncio
-from typing import List
+"""
+CLI 기반 에이전트 실행 스크립트
 
-from apps.agent import browser
-from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain_core.output_parsers.openai_tools import JsonOutputToolsParser
-from langchain_openai import ChatOpenAI
-from playwright.async_api import async_playwright
+FastAPI 통합 버전은 apps.agent.agent_service를 사용하세요.
+"""
+
+import asyncio
 
 import lib.env
-from apps.agent import prompt
-from apps.agent.session import Session
-from apps.agent.type import ToolCallResult
+from apps.agent.agent_service import agent_service
+from apps.agent.session_manager import session_manager
 
 
 async def main():
+    """CLI 모드로 에이전트 실행"""
+    print("=" * 50)
+    print("에이전트 CLI 모드")
+    print("종료하려면 'exit' 또는 'quit'를 입력하세요.")
+    print("=" * 50)
 
-    session = Session()
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    # SessionManager 초기화
+    await session_manager.initialize()
 
-    async with async_playwright() as playwright:
-        await session.start(playwright)
+    # 테스트용 사용자 ID (CLI 모드에서는 고정값 사용)
+    test_user_id = 0
 
-        tools = browser.get_browser_tools(session)
-        agent = create_tool_calling_agent(llm, tools, prompt.prompt)
-        agent_executor = AgentExecutor(
-            agent=agent,
-            tools=tools,
-            verbose=True,
-            handle_parsing_errors=True,
-        )
+    try:
+        while True:
+            user_input = input("\n입력: ").strip()
 
-        try:
-            while True:
-                user_input = input("입력: ")
-                result = await agent_executor.ainvoke({"input": user_input})
-                print(f"result: {result}")
-                # await browser.execute_tool_calls(tools, result)
+            if user_input.lower() in ["exit", "quit"]:
+                print("에이전트를 종료합니다.")
+                break
 
-                # result: List[ToolCallResult] = chain.invoke("현재 페이지 HTML 가져와줘.")
-                # print(f"result: {result}")
-                # await browser.execute_tool_calls(tools, result)
+            if not user_input:
+                continue
 
-        finally:
-            await session.close()
+            # AgentService를 통해 메시지 처리
+            response = await agent_service.process_message(test_user_id, user_input)
+            print(f"\n응답: {response}")
+
+    finally:
+        # 세션 정리
+        await session_manager.shutdown()
 
 
 if __name__ == "__main__":

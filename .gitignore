@@ -3,4 +3,6 @@
 .venv
 
 .env
-.DS_Store
+sessions
+data
+chroma_db
