@@ -17,6 +17,12 @@ class Schedule(Base):
     # ai에게 전할 자연어
     content = Column(String(500), nullable=True)
 
+    # 스케줄 작업 유형 (예: 'GRADE_CHECK', 'NOTIFICATION_SEND' 등)
+    task_type = Column(String(100), nullable=True, index=True)
+
+    # 변경 감지를 위한 이전 핵심 데이터
+    last_known_result = Column(Text, nullable=True)
+
     created_at = Column(DateTime, default=datetime.now, nullable=False)
     updated_at = Column(
         DateTime, default=datetime.now, onupdate=datetime.now, nullable=False
@@ -30,8 +36,8 @@ class Schedule(Base):
 
     # Creation
     @classmethod
-    def create(cls, cron: str, content: str, user_id: int):
-        return cls(cron=cron, content=content, user_id=user_id)
+    def create(cls, cron: str, content: str, user_id: int, task_type: str, chat_room_id: int):
+        return cls(cron=cron, content=content, user_id=user_id, task_type=task_type, chat_room_id=chat_room_id)
 
     # Utility
     def __str__(self):

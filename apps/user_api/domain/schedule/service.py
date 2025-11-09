@@ -13,13 +13,17 @@ from croniter import croniter
 from lib.database import get_db
 from typing import Optional
 
+import asyncio
+from apps.agent.agent_service import agent_service
+from apps.agent.agent_service import get_agent_data_function
+
 
 def create_schedule(
     db: Session, user_id: int, request: CreateScheduleRequest
 ) -> Schedule:
     """새로운 스케줄을 DB에 생성합니다."""
     new_schedule = Schedule.create(
-        cron=request.cron, content=request.content, user_id=user_id
+        cron=request.cron, content=request.content, user_id=user_id, task_type=request.task_type, chat_room_id=request.chat_room_id
     )
     db.add(new_schedule)
     db.commit()
@@ -88,16 +92,19 @@ def delete_schedule(db: Session, schedule_id: int, user_id: int) -> None:
     return True
 
 
-def check_and_run_due_schedules():
+async def check_and_run_due_schedules():
     """
     모든 스케줄을 확인하고, 실행 시간이 된 스케줄을 처리합니다.
-    이 함수는 main.py의 apscheduler와 연동되어 주기적으로 호출됩니다.
+    이 함수는 main.py의 apscheduler와 연동되어 주기적으로 호출됩니다. (agent 호출로 인한 비동기)
     """
     print(f"[{datetime.now()}] 스케줄 실행 여부 확인 중...")
+
     db: Session = next(get_db())  # HTTP 요청이 아니기에 수동으로 세션 가져오기
 
     try:
-        all_schedules = db.query(Schedule).all()
+        all_schedules = db.query(Schedule).filter(Schedule.task_type != None).all()
+
+        tasks_to_run = [] # 실행할 작업들을 모아둘 리스트
 
         for schedule in all_schedules:
 
@@ -112,18 +119,66 @@ def check_and_run_due_schedules():
             # now.replace(second=0, microsecond=0)는 초와 마이크로초를 0으로 맞춰서 비교 (crontier가 초를 0으로 비교해서)
             # 현재 시간이 cron 표현식에 맞는 시간과 같다면 스케줄 실행
             if iter.get_prev(datetime) == now.replace(second=0, microsecond=0):
+                print(f"[스케줄러] 스케줄 ID {schedule.schedule_id} 실행 시간 도달. 작업 유형: {schedule.task_type}")
 
-                print(
-                    f"실행 시간 도달. 스케줄 ID: {schedule.schedule_id}, 내용: {schedule.content}"
+                # 리스트에 추가 
+                tasks_to_run.append(
+                    run_schedule_agent_task(db, schedule)
                 )
 
-                # content 값에 따라 적절한 에이전트 실행 함수를 호출 - Todo: agent 서비스가 구현되면 추가
-                if schedule.content == "TASK_GRADE_CHECK":
-                    print("-> 성적 확인 에이전트 실행 - TODO")
-                    # run_grade_check_for_user(user_id=schedule.user_id, schedule_id=schedule.schedule_id)
-                # elif schedule.content == "TASK_???":
-                #   run_???(user_id=schedule.user_id, schedule_id=schedule.schedule_id)
-                else:
-                    print(f"-> '{schedule.content}'에 해당하는 작업이 없어 건너뜁니다.")
+        # 실행 시간이 된 작업들을 비동기로 실행
+        if tasks_to_run:
+            print(f"총 {len(tasks_to_run)}개의 스케줄을 병렬로 실행합니다.")
+            await asyncio.gather(*tasks_to_run)
+    
+    except Exception as e:
+        print(f"[스케줄러] 스케줄 실행 중 오류 발생: {e}")
+
     finally:
         db.close()
+
+
+async def run_schedule_agent_task(db: Session, schedule: Schedule):
+    """
+    schedule.task_type에 따라 적절한 작업 헬퍼를 호출하고,
+    변경 감지시 알림을 생성합니다.
+    """
+
+    agent_data_function = get_agent_data_function(schedule.task_type)
+    
+    if agent_data_function is None:
+        print(f"알 수 없는 task_type: {schedule.task_type}. 건너뜁니다.")
+        return
+
+    try:
+        new_result = None # AI가 반환한 핵심 데이터
+
+        #if schedule.task_type == "GRADE_CHECK":
+        new_result = await agent_data_function(
+            chat_room_id=schedule.chat_room_id,
+            user_id=schedule.user_id
+        )
+
+        if new_result is not None and new_result != schedule.last_known_result:
+            
+            print(f"[스케줄러] '핵심 데이터' 변화 감지! (ID: {schedule.schedule_id})")
+
+            schedule.last_known_result = new_result
+
+            # 최초 한번 알림 후 스케줄러 삭제
+            if schedule.task_type == "GRADE_CHECK":
+                db.delete(schedule)
+
+            notification_content = f"'{schedule.content}' 작업에 변동사항이 감지되었습니다. (결과: {new_result})"
+            print(f"[스케줄러] 알림 생성: {notification_content}")
+
+            db.commit()
+
+        else:
+            # 변화가 없거나, AI가 None을 반환함
+            print(f"[스케줄러] 핵심 데이터 변화 없음. (ID: {schedule.schedule_id}) 알림 스킵.")
+
+    except Exception as e:
+        print(f"[스케줄러] 작업 실행 중 오류: {e}")
+        db.rollback()
+

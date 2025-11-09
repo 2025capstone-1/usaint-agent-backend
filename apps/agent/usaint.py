@@ -49,7 +49,11 @@ class SelectNavigationMenuArgs(BaseModel):
 @tool(args_schema=SelectNavigationMenuArgs)
 async def select_navigation_menu(session_id: str, menu_title: str):
     """유세인트 메뉴를 선택합니다."""
+    return await _select_navigation_menu(session_id, menu_title)
 
+
+async def _select_navigation_menu(session_id: str, menu_title: str):
+    """유세인트 메뉴를 선택합니다."""
     session = session_manager.get_session(session_id)
     menu = session.page.get_by_role("link", name=menu_title)
     print(f"{menu_title}: {menu}")

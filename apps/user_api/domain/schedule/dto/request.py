@@ -21,6 +21,10 @@ class CreateScheduleRequest(ScheduleRequest):
         examples=["이번 학기 성적표 조회해줘"],
     )
 
+    task_type: str = Field(..., description="AI가 분류한 작업 타입", examples=["GRADE_CHECK"])
+
+    chat_room_id: int = Field(..., description="현재 채팅방 ID", examples=[1])
+
     @field_validator("cron")
     @classmethod
     def validate_cron(cls, v: str) -> str:

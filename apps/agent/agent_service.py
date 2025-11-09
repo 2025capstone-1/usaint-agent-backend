@@ -22,6 +22,16 @@ from apps.agent.usaint import (
     usaint_login,
 )
 
+from apps.agent.usaint import (
+    _get_frame,
+    _get_iframe_text_content,
+    _select_navigation_menu,
+    usaint_login,
+)
+
+from apps.user_api.domain.usaint_account.service import get_usaint_account_by_user_id
+from lib.database import get_db
+from lib.security import decrypt_password
 
 # 상태 정의
 class State(TypedDict):
@@ -378,6 +388,80 @@ class AgentService:
                 "message": f"오류가 발생했습니다: {str(e)}"
             }
 
+    # 스케줄러가 호출할 성적 데이터 가져오기
+    async def get_grades_data(
+        self, chat_room_id: int, user_id: int
+    ) -> Optional[str]:
+        """
+        [스케줄러 전용] 유세인트 성적 핵심 데이터를 반환합니다.
+        """
+        print(f"[AgentService] 스케줄러 작업: 성적 데이터 조회 (User: {user_id})")
+        db = next(get_db())
+        try:
+            # DB에서 유세인트 ID/PW 가져오기
+            usaint_account = get_usaint_account_by_user_id(db, user_id)
+            usaint_id = usaint_account.id
+            usaint_pw = decrypt_password(usaint_account.password)
+
+            # 세션 가져오기 
+            session = await self._get_or_create_session(chat_room_id, usaint_id, usaint_pw)
+            if not session:
+                raise Exception("세션 생성 또는 로그인에 실패했습니다.")
+            
+            # 세션 id 문자열 가져오기
+            session_id_str = self._get_session_id(chat_room_id)
+            
+            # playwright 코드 
+            await _select_navigation_menu(session_id_str, "학사관리")
+            await _select_navigation_menu(session_id_str, "성적/졸업")
+            await _select_navigation_menu(session_id_str, "학기별 성적 조회")
+
+            # 학기별 성적 조회 iframe으로 진입
+            frame = await _get_frame(session) 
+            if not frame:
+                raise Exception("iframe(_get_frame)을 찾는 데 실패했습니다.")
+            
+            target_id_selector = "#WD0147" 
+            await frame.wait_for_selector(target_id_selector, timeout=10000)
+
+            gpa_input_locator = frame.locator(target_id_selector)
+
+            # 총 평점 데이터 추출 
+            key_data = await gpa_input_locator.get_attribute("value")
+
+            if key_data is None:
+                print(f"[AgentService] ID 셀렉터 '{target_id_selector}'를 찾지 못했습니다.")
+                return None
+
+            print(f"[AgentService] 스케줄러 작업: 핵심 데이터 '총 평점' 추출 완료 ({key_data})")
+            return key_data
+        
+        except Exception as e:
+            print(f"[AgentService] 성적 조회 작업 중 오류: {e}")
+            return None
+        finally:
+             db.close()
+
+    async def _get_or_create_session(
+        self, chat_room_id: int, usaint_id: str, usaint_pw: str
+    ):
+        """[스케줄러 전용] 세션을 가져오거나, 없으면 생성하고 로그인합니다."""
+        if not self.playwright:
+            await self.initialize()
+
+        session_id = self._get_session_id(chat_room_id)
+        session = session_manager.get_session(session_id)
+        session.update_activity() # 세션 자동 종료 방지
+
+        # 세션이 없거나, 페이지가 닫혔으면 새로 시작
+        if session.page is None or session.page.is_closed():
+            print(f"[AgentService] 스케줄러용 세션이 없어 새로 시작합니다: {session_id}")
+            await session.start(self.playwright)
+            await usaint_login(session, usaint_id, usaint_pw)
+            print(f"[AgentService] 스케줄러용 로그인 완료: {session_id}")
+        
+        return session
+
     async def close_chat_room_session(self, chat_room_id: int):
         """특정 채팅방의 세션을 종료합니다."""
         session_id = self._get_session_id(chat_room_id)
@@ -391,6 +475,15 @@ class AgentService:
             del session_manager.session_map[session_id]
             print(f"[AgentService] 세션 종료: {session_id}")
 
+
+def get_agent_data_function(task_type: str):
+    """
+    [스케줄러 전용] task_type 문자열을 실제 agent_service 함수 객체로 매핑합니다.
+    """
+    if task_type == "GRADE_CHECK":
+        return agent_service.get_grades_data
+    
+    return None # 매핑되는 함수가 없으면 None 반환
 
 # 전역 싱글톤 인스턴스
 agent_service = AgentService()
