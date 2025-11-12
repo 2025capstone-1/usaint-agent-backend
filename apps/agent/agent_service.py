@@ -12,6 +12,7 @@ from typing_extensions import TypedDict
 from apps.agent.prompt import get_prompt
 from apps.agent.rag import search_ssu_notice
 from apps.agent.cafeteria import fetch_cafeteria_menu
+from apps.agent.grade_fetcher import fetch_grade_summary
 from apps.agent.session import session_manager
 from apps.agent.usaint import (
     click_in_iframe,
@@ -23,6 +24,10 @@ from apps.agent.usaint import (
     usaint_login,
 )
 
+from apps.user_api.domain.usaint_account.service import get_usaint_account_by_user_id
+from lib.database import get_db
+from lib.security import decrypt_password
+from apps.agent.rag import search_notices
 
 # 상태 정의
 class State(TypedDict):
@@ -415,6 +420,81 @@ class AgentService:
             traceback.print_exc()
             yield {"type": "error", "message": f"오류가 발생했습니다: {str(e)}"}
 
+    # 스케줄러가 호출할 성적 데이터 가져오기
+    async def get_grades_data(
+        self, chat_room_id: int, user_id: int
+    ) -> Optional[str]:
+        """
+        [스케줄러 전용] 유세인트 성적 데이터를 가져옵니다.
+        """
+        print(f"[AgentService] 스케줄러 작업: 성적 데이터 조회 (User: {user_id})")
+        db = next(get_db())
+        try:
+            # DB에서 유세인트 ID/PW 가져오기
+            usaint_account = get_usaint_account_by_user_id(db, user_id)
+            usaint_id = usaint_account.id
+            usaint_pw = decrypt_password(usaint_account.password)
+
+            # 세션 가져오기 
+            session = await self._get_or_create_session(chat_room_id, usaint_id, usaint_pw)
+            if not session:
+                raise Exception("세션 생성 또는 로그인에 실패했습니다.")
+            
+            # 세션 id 문자열 가져오기
+            session_id_str = self._get_session_id(chat_room_id)
+
+            # 총 평점 데이터 추출 
+            key_data = await fetch_grade_summary(session, session_id_str)
+            return key_data
+        
+        except Exception as e:
+            print(f"[AgentService] 성적 조회 작업 중 오류: {e}")
+            return None
+        finally:
+             db.close()
+
+#    async def get_notice_data(
+#       self, chat_room_id: int, user_id: int, task_content: str
+#    ) -> Optional[str]:
+#        """
+#        [스케줄러 전용] 숭실대 공지사항 데이터를 가져옵니다.
+#        """
+#        print(f"[AgentService] 스케줄러 작업: 공지사항 데이터 조회 (키워드: {task_content})")
+        
+#        try:
+        
+#            key_data = await fetch_lastest_notice_fetcher(task_content)
+#            if not key_data:
+#                 print(f"[AgentService] 공지사항의 '제목'을 찾지 못했습니다.")
+#                 return None
+
+#            print(f"[AgentService] 스케줄러 작업: 최신 공지 확인 ({key_data})")
+#            return key_data
+            
+#        except Exception as e:
+#            print(f"[AgentService] 공지사항 검색 중 오류: {e}")
+#            return None
+
+    async def _get_or_create_session(
+        self, chat_room_id: int, usaint_id: str, usaint_pw: str
+    ):
+        """[스케줄러 전용] 세션을 가져오거나, 없으면 생성하고 로그인합니다."""
+        if not self.playwright:
+            await self.initialize()
+
+        session_id = self._get_session_id(chat_room_id)
+        session = session_manager.get_session(session_id)
+        session.update_activity() # 세션 자동 종료 방지
+
+        # 세션이 없거나, 페이지가 닫혔으면 새로 시작
+        if session.page is None or session.page.is_closed():
+            print(f"[AgentService] 스케줄러용 세션이 없어 새로 시작합니다: {session_id}")
+            await session.start(self.playwright)
+            await usaint_login(session, usaint_id, usaint_pw)
+            print(f"[AgentService] 스케줄러용 로그인 완료: {session_id}")
+        
+        return session
+
     async def close_chat_room_session(self, chat_room_id: int):
         """특정 채팅방의 세션을 종료합니다."""
         session_id = self._get_session_id(chat_room_id)
@@ -428,6 +508,17 @@ class AgentService:
             del session_manager.session_map[session_id]
             print(f"[AgentService] 세션 종료: {session_id}")
 
+
+def get_agent_data_function(task_type: str):
+    """
+    [스케줄러 전용] task_type 문자열을 실제 agent_service 함수 객체로 매핑합니다.
+    """
+    if task_type == "GRADE_CHECK":
+        return agent_service.get_grades_data
+    elif task_type == "NOTICE_CHECK":
+        return agent_service.get_notice_data
+    
+    return None # 매핑되는 함수가 없으면 None 반환
 
 # 전역 싱글톤 인스턴스
 agent_service = AgentService()
