@@ -11,6 +11,7 @@ from typing_extensions import TypedDict
 
 from apps.agent.prompt import get_prompt
 from apps.agent.rag import search_ssu_notice
+from apps.agent.cafeteria import fetch_cafeteria_menu
 from apps.agent.session import session_manager
 from apps.agent.usaint import (
     click_in_iframe,
@@ -38,6 +39,7 @@ TOOL_NAME_TO_MESSAGE = {
     "get_iframe_interactive_element": "페이지 요소 찾는 중...",
     "click_in_iframe": "클릭 실행 중...",
     "insert_text": "텍스트 입력 중...",
+    "fetch_cafeteria_menu": "식당 메뉴 조회 중...",
 }
 
 
@@ -58,6 +60,7 @@ class AgentService:
             select_navigation_menu,
             search_menu,
             search_ssu_notice,
+            fetch_cafeteria_menu,
         ]
 
         # LLM에 도구 바인딩
@@ -128,7 +131,7 @@ class AgentService:
         """특정 채팅방의 대화 메모리를 초기화"""
         session_id = self._get_session_id(chat_room_id)
         try:
-            if hasattr(self.memory, 'storage'):
+            if hasattr(self.memory, "storage"):
                 thread_key = (session_id,)
                 if thread_key in self.memory.storage:
                     del self.memory.storage[thread_key]
@@ -147,7 +150,7 @@ class AgentService:
             bool: 메모리가 수정되었으면 True, 그렇지 않으면 False
         """
         try:
-            if not hasattr(self.memory, 'storage'):
+            if not hasattr(self.memory, "storage"):
                 return False
 
             thread_key = (session_id,)
@@ -156,14 +159,14 @@ class AgentService:
 
             # 메모리에서 상태 가져오기
             checkpoint = self.memory.storage[thread_key]
-            if not checkpoint or 'channel_values' not in checkpoint:
+            if not checkpoint or "channel_values" not in checkpoint:
                 return False
 
-            channel_values = checkpoint['channel_values']
-            if 'messages' not in channel_values:
+            channel_values = checkpoint["channel_values"]
+            if "messages" not in channel_values:
                 return False
 
-            messages = channel_values['messages']
+            messages = channel_values["messages"]
             if not messages:
                 return False
 
@@ -173,17 +176,25 @@ class AgentService:
             # AIMessage이면서 tool_calls가 있는지 확인
             from langchain_core.messages import AIMessage, ToolMessage
 
-            if isinstance(last_message, AIMessage) and hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+            if (
+                isinstance(last_message, AIMessage)
+                and hasattr(last_message, "tool_calls")
+                and last_message.tool_calls
+            ):
                 # tool_calls가 있는데 다음 메시지가 ToolMessage인지 확인
                 # 마지막이 AIMessage(with tool_calls)면 ToolMessage가 없는 것
-                print(f"[AgentService] 불완전한 tool_calls 감지: {len(last_message.tool_calls)}개")
+                print(
+                    f"[AgentService] 불완전한 tool_calls 감지: {len(last_message.tool_calls)}개"
+                )
 
                 # 불완전한 AIMessage 제거
                 messages.pop()
-                checkpoint['channel_values']['messages'] = messages
+                checkpoint["channel_values"]["messages"] = messages
                 self.memory.storage[thread_key] = checkpoint
 
-                print(f"[AgentService] 불완전한 메시지 제거 완료 (session: {session_id})")
+                print(
+                    f"[AgentService] 불완전한 메시지 제거 완료 (session: {session_id})"
+                )
                 return True
 
             return False
@@ -191,6 +202,7 @@ class AgentService:
         except Exception as e:
             print(f"[AgentService] 메모리 검증 중 오류: {e}")
             import traceback
+
             traceback.print_exc()
             return False
 
@@ -232,6 +244,19 @@ class AgentService:
         elif tool_name == "get_iframe_interactive_element":
             return "페이지 요소 찾는 중..."
 
+        elif tool_name == "fetch_cafeteria_menu":
+            restaurant_code = tool_args.get("restaurant_code", "")
+            restaurant_names = {
+                1: "학생식당",
+                2: "숭실도담식당",
+                4: "스넥코너",
+                5: "푸드코트",
+                6: "THE KITCHEN",
+                7: "FACULTY LOUNGE",
+            }
+            restaurant_name = restaurant_names.get(restaurant_code, "식당")
+            return f"{restaurant_name} 메뉴 조회 중..."
+
         else:
             # 기본 메시지
             return TOOL_NAME_TO_MESSAGE.get(tool_name, f"{tool_name} 실행 중...")
@@ -241,7 +266,7 @@ class AgentService:
         chat_room_id: int,
         message: str,
         usaint_id: str = None,
-        usaint_password: str = None
+        usaint_password: str = None,
     ) -> AsyncGenerator[Dict, None]:
         """
         사용자 메시지를 처리하고 스트리밍 방식으로 응답을 반환합니다.
@@ -287,23 +312,22 @@ class AgentService:
                     yield {
                         "type": "tool_start",
                         "tool_name": "usaint_login",
-                        "message": "유세인트 로그인 중..."
+                        "message": "유세인트 로그인 중...",
                     }
                     await usaint_login(session, usaint_id, usaint_password)
                     print(f"[AgentService] 유세인트 로그인 완료: {session_id}")
 
             # LangGraph 설정
-            config = {
-                "recursion_limit": 25,
-                "configurable": {"thread_id": session_id}
-            }
+            config = {"recursion_limit": 25, "configurable": {"thread_id": session_id}}
 
             # 스트리밍 실행
             try:
                 async for event in self.graph.astream(
                     {
                         "session_id": session_id,
-                        "messages": [("user", message)],  # 시스템 메시지는 그래프 내부에서 관리
+                        "messages": [
+                            ("user", message)
+                        ],  # 시스템 메시지는 그래프 내부에서 관리
                     },
                     config=config,
                 ):
@@ -312,34 +336,49 @@ class AgentService:
                             last_message = value["messages"][-1]
 
                             # AIMessage이면서 tool_calls가 있는 경우 (툴 호출)
-                            if isinstance(last_message, AIMessage) and hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+                            if (
+                                isinstance(last_message, AIMessage)
+                                and hasattr(last_message, "tool_calls")
+                                and last_message.tool_calls
+                            ):
                                 for tool_call in last_message.tool_calls:
                                     # tool_call은 딕셔너리 또는 객체일 수 있음
                                     if isinstance(tool_call, dict):
-                                        tool_name = tool_call.get("name", "알 수 없는 도구")
+                                        tool_name = tool_call.get(
+                                            "name", "알 수 없는 도구"
+                                        )
                                         tool_args = tool_call.get("args", {})
                                     else:
                                         # 객체인 경우 속성으로 접근
-                                        tool_name = getattr(tool_call, "name", "알 수 없는 도구")
+                                        tool_name = getattr(
+                                            tool_call, "name", "알 수 없는 도구"
+                                        )
                                         tool_args = getattr(tool_call, "args", {})
 
                                     # 툴 인자를 기반으로 구체적인 메시지 생성
-                                    tool_message = self._generate_tool_message(tool_name, tool_args)
+                                    tool_message = self._generate_tool_message(
+                                        tool_name, tool_args
+                                    )
 
                                     # 디버깅용 로그
-                                    print(f"[AgentService] 툴 호출: {tool_name}, 인자: {tool_args}")
+                                    print(
+                                        f"[AgentService] 툴 호출: {tool_name}, 인자: {tool_args}"
+                                    )
 
                                     yield {
                                         "type": "tool_start",
                                         "tool_name": tool_name,
-                                        "message": tool_message
+                                        "message": tool_message,
                                     }
 
                             # AIMessage이면서 content가 있는 경우 (최종 응답)
-                            elif isinstance(last_message, AIMessage) and last_message.content:
+                            elif (
+                                isinstance(last_message, AIMessage)
+                                and last_message.content
+                            ):
                                 yield {
                                     "type": "agent_message",
-                                    "content": last_message.content
+                                    "content": last_message.content,
                                 }
 
                             # ToolMessage는 무시 (내부 처리용)
@@ -357,13 +396,13 @@ class AgentService:
                     # 사용자에게 알림
                     yield {
                         "type": "error",
-                        "message": "대화 기록에 문제가 발생하여 초기화했습니다. 다시 시도해주세요."
+                        "message": "대화 기록에 문제가 발생하여 초기화했습니다. 다시 시도해주세요.",
                     }
                 else:
                     # 다른 에러는 그대로 전달
                     yield {
                         "type": "error",
-                        "message": f"오류가 발생했습니다: {error_msg}"
+                        "message": f"오류가 발생했습니다: {error_msg}",
                     }
 
                 # 에러를 yield로 전달했으므로 raise하지 않음
@@ -372,11 +411,9 @@ class AgentService:
         except Exception as e:
             print(f"[AgentService] 메시지 처리 중 오류: {e}")
             import traceback
+
             traceback.print_exc()
-            yield {
-                "type": "error",
-                "message": f"오류가 발생했습니다: {str(e)}"
-            }
+            yield {"type": "error", "message": f"오류가 발생했습니다: {str(e)}"}
 
     async def close_chat_room_session(self, chat_room_id: int):
         """특정 채팅방의 세션을 종료합니다."""
