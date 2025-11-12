@@ -96,28 +96,34 @@ def check_and_run_due_schedules():
     print(f"[{datetime.now()}] 스케줄 실행 여부 확인 중...")
     db: Session = next(get_db())  # HTTP 요청이 아니기에 수동으로 세션 가져오기
 
-    all_schedules = db.query(Schedule).all()
+    try:
+        all_schedules = db.query(Schedule).all()
 
-    for schedule in all_schedules:
-        now = datetime.now()
-        # db에 저장된 스케줄러의 cron 표현식과 현재시간(now)를 비교하기 위해 객체 생성
-        iter = croniter(schedule.cron, now)
+        for schedule in all_schedules:
 
-        # get_prev()는 iter기준으로 cron 표현식에 맞는 가장 가까운 이전 시간을 반환
-        # now.replace(second=0, microsecond=0)는 초와 마이크로초를 0으로 맞춰서 비교 (crontier가 초를 0으로 비교해서)
-        # 현재 시간이 cron 표현식에 맞는 시간과 같다면 스케줄 실행
-        if iter.get_prev(datetime) == now.replace(second=0, microsecond=0):
+            if schedule.cron is None:
+                continue  # cron이 설정되지 않은 스케줄은 건너뜀
 
-            print(
-                f"실행 시간 도달. 스케줄 ID: {schedule.schedule_id}, 내용: {schedule.content}"
-            )
+            now = datetime.now()
+            # db에 저장된 스케줄러의 cron 표현식과 현재시간(now)를 비교하기 위해 객체 생성
+            iter = croniter(schedule.cron, now)
 
-            # content 값에 따라 적절한 에이전트 실행 함수를 호출 - Todo: agent 서비스가 구현되면 추가
-            if schedule.content == "TASK_GRADE_CHECK":
-                print("-> 성적 확인 에이전트 실행 - TODO")
-                # run_grade_check_for_user(user_id=schedule.user_id, schedule_id=schedule.schedule_id)
-            # elif schedule.content == "TASK_???":
-            #   run_???(user_id=schedule.user_id, schedule_id=schedule.schedule_id)
-            else:
-                print(f"-> '{schedule.content}'에 해당하는 작업이 없어 건너뜁니다.")
-    db.close()
+            # get_prev()는 iter기준으로 cron 표현식에 맞는 가장 가까운 이전 시간을 반환
+            # now.replace(second=0, microsecond=0)는 초와 마이크로초를 0으로 맞춰서 비교 (crontier가 초를 0으로 비교해서)
+            # 현재 시간이 cron 표현식에 맞는 시간과 같다면 스케줄 실행
+            if iter.get_prev(datetime) == now.replace(second=0, microsecond=0):
+
+                print(
+                    f"실행 시간 도달. 스케줄 ID: {schedule.schedule_id}, 내용: {schedule.content}"
+                )
+
+                # content 값에 따라 적절한 에이전트 실행 함수를 호출 - Todo: agent 서비스가 구현되면 추가
+                if schedule.content == "TASK_GRADE_CHECK":
+                    print("-> 성적 확인 에이전트 실행 - TODO")
+                    # run_grade_check_for_user(user_id=schedule.user_id, schedule_id=schedule.schedule_id)
+                # elif schedule.content == "TASK_???":
+                #   run_???(user_id=schedule.user_id, schedule_id=schedule.schedule_id)
+                else:
+                    print(f"-> '{schedule.content}'에 해당하는 작업이 없어 건너뜁니다.")
+    finally:
+        db.close()
