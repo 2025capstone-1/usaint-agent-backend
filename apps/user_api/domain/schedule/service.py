@@ -153,10 +153,16 @@ async def run_schedule_agent_task(db: Session, schedule: Schedule):
     try:
         new_result = None # AI가 반환한 핵심 데이터
 
-        #if schedule.task_type == "GRADE_CHECK":
-        new_result = await agent_data_function(
-            chat_room_id=schedule.chat_room_id,
-            user_id=schedule.user_id
+        if schedule.task_type == "NOTICE_CHECK":
+            new_result = await agent_data_function(
+                chat_room_id=schedule.chat_room_id,
+                user_id=schedule.user_id,
+                task_content=schedule.content
+                )
+        else:
+            new_result = await agent_data_function(
+                chat_room_id=schedule.chat_room_id,
+                user_id=schedule.user_id
         )
 
         if new_result is not None and new_result != schedule.last_known_result:
@@ -166,8 +172,8 @@ async def run_schedule_agent_task(db: Session, schedule: Schedule):
             schedule.last_known_result = new_result
 
             # 최초 한번 알림 후 스케줄러 삭제
-            if schedule.task_type == "GRADE_CHECK":
-                db.delete(schedule)
+            #if schedule.task_type == "GRADE_CHECK":
+                #db.delete(schedule)
 
             notification_content = f"'{schedule.content}' 작업에 변동사항이 감지되었습니다. (결과: {new_result})"
             print(f"[스케줄러] 알림 생성: {notification_content}")

@@ -12,6 +12,7 @@ from typing_extensions import TypedDict
 from apps.agent.prompt import get_prompt
 from apps.agent.rag import search_ssu_notice
 from apps.agent.cafeteria import fetch_cafeteria_menu
+from apps.agent.grade_fetcher import fetch_grade_summary
 from apps.agent.session import session_manager
 from apps.agent.usaint import (
     click_in_iframe,
@@ -23,16 +24,10 @@ from apps.agent.usaint import (
     usaint_login,
 )
 
-from apps.agent.usaint import (
-    _get_frame,
-    _get_iframe_text_content,
-    _select_navigation_menu,
-    usaint_login,
-)
-
 from apps.user_api.domain.usaint_account.service import get_usaint_account_by_user_id
 from lib.database import get_db
 from lib.security import decrypt_password
+from apps.agent.rag import search_notices
 
 # 상태 정의
 class State(TypedDict):
@@ -430,7 +425,7 @@ class AgentService:
         self, chat_room_id: int, user_id: int
     ) -> Optional[str]:
         """
-        [스케줄러 전용] 유세인트 성적 핵심 데이터를 반환합니다.
+        [스케줄러 전용] 유세인트 성적 데이터를 가져옵니다.
         """
         print(f"[AgentService] 스케줄러 작업: 성적 데이터 조회 (User: {user_id})")
         db = next(get_db())
@@ -447,30 +442,9 @@ class AgentService:
             
             # 세션 id 문자열 가져오기
             session_id_str = self._get_session_id(chat_room_id)
-            
-            # playwright 코드 
-            await _select_navigation_menu(session_id_str, "학사관리")
-            await _select_navigation_menu(session_id_str, "성적/졸업")
-            await _select_navigation_menu(session_id_str, "학기별 성적 조회")
-
-            # 학기별 성적 조회 iframe으로 진입
-            frame = await _get_frame(session) 
-            if not frame:
-                raise Exception("iframe(_get_frame)을 찾는 데 실패했습니다.")
-            
-            target_id_selector = "#WD0147" 
-            await frame.wait_for_selector(target_id_selector, timeout=10000)
-
-            gpa_input_locator = frame.locator(target_id_selector)
 
             # 총 평점 데이터 추출 
-            key_data = await gpa_input_locator.get_attribute("value")
-
-            if key_data is None:
-                print(f"[AgentService] ID 셀렉터 '{target_id_selector}'를 찾지 못했습니다.")
-                return None
-
-            print(f"[AgentService] 스케줄러 작업: 핵심 데이터 '총 평점' 추출 완료 ({key_data})")
+            key_data = await fetch_grade_summary(session, session_id_str)
             return key_data
         
         except Exception as e:
@@ -478,6 +452,28 @@ class AgentService:
             return None
         finally:
              db.close()
+
+#    async def get_notice_data(
+#       self, chat_room_id: int, user_id: int, task_content: str
+#    ) -> Optional[str]:
+#        """
+#        [스케줄러 전용] 숭실대 공지사항 데이터를 가져옵니다.
+#        """
+#        print(f"[AgentService] 스케줄러 작업: 공지사항 데이터 조회 (키워드: {task_content})")
+        
+#        try:
+        
+#            key_data = await fetch_lastest_notice_fetcher(task_content)
+#            if not key_data:
+#                 print(f"[AgentService] 공지사항의 '제목'을 찾지 못했습니다.")
+#                 return None
+
+#            print(f"[AgentService] 스케줄러 작업: 최신 공지 확인 ({key_data})")
+#            return key_data
+            
+#        except Exception as e:
+#            print(f"[AgentService] 공지사항 검색 중 오류: {e}")
+#            return None
 
     async def _get_or_create_session(
         self, chat_room_id: int, usaint_id: str, usaint_pw: str
@@ -519,6 +515,8 @@ def get_agent_data_function(task_type: str):
     """
     if task_type == "GRADE_CHECK":
         return agent_service.get_grades_data
+    elif task_type == "NOTICE_CHECK":
+        return agent_service.get_notice_data
     
     return None # 매핑되는 함수가 없으면 None 반환
 
