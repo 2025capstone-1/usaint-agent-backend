@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 import asyncio
 
 import socketio
-from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,31 +12,41 @@ import apps.user_api.domain.chat_room.controller as ChatRoomRouter
 import apps.user_api.domain.schedule.controller as ScheduleRouter
 import apps.user_api.domain.usaint_account.controller as UsaintAccountRouter
 import apps.user_api.domain.user.controller as UserRouter
+import apps.user_api.domain.notification.controller as NotificationRouter
 from apps.agent.agent_service import agent_service
 from apps.agent.session import session_manager
 from apps.user_api.domain.chat.socket_handler import register_socket_handlers
 from apps.user_api.domain.schedule.service import check_and_run_due_schedules
 from lib.database import Base, engine
 
-scheduler = BackgroundScheduler(timezone="Asia/Seoul")
+# Import all models for table creation
+from apps.user_api.domain.notification.entity import PushSubscription
+
+scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
 
 
-def cleanup_inactive_sessions_job():
-    """비활성 세션을 정리하는 스케줄러 작업 (동기 래퍼)"""
+async def cleanup_inactive_sessions_job():
+    """비활성 세션을 정리하는 스케줄러 작업 (비동기 래퍼)"""
     try:
-        # BackgroundScheduler는 동기 함수만 지원하므로 asyncio.run 사용
         print(f"clean up inactive session job!")
-        asyncio.run(session_manager.cleanup_inactive_sessions(timeout_seconds=60))
+        await session_manager.cleanup_inactive_sessions(timeout_seconds=60)
     except Exception as e:
         print(f"[Scheduler] 세션 정리 작업 중 오류: {e}")
 
+async def check_and_run_due_schedules_job():
+    """스케줄러 작업을 위한 비동기 래퍼"""
+    try:
+        print(f"Running scheduled job: check_and_run_due_schedules...")
+        await check_and_run_due_schedules()
+    except Exception as e:
+        print(f"[Scheduler] 스케줄 작업 중 오류: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 앱 시작 시 실행할 코드
     # 1. 스케줄러 시작
     scheduler.add_job(
-        check_and_run_due_schedules, "interval", minutes=1, id="main_scheduler_job"
+        check_and_run_due_schedules_job, "interval", minutes=1, id="main_scheduler_job",coalesce=True, max_instances=1,
     )
     scheduler.add_job(
         cleanup_inactive_sessions_job,
@@ -83,6 +93,7 @@ app.include_router(ChatRoomRouter.router, prefix="/chat-room")
 app.include_router(ScheduleRouter.router, prefix="/schedule")
 app.include_router(UsaintAccountRouter.router, prefix="/usaint-account")
 app.include_router(UserRouter.router, prefix="/user")
+app.include_router(NotificationRouter.router, prefix="/notification")
 
 # Socket.io 서버 생성
 sio = socketio.AsyncServer(

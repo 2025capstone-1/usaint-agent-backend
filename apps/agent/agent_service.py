@@ -12,6 +12,7 @@ from typing_extensions import TypedDict
 from apps.agent.prompt import get_prompt
 from apps.agent.rag import search_ssu_notice
 from apps.agent.cafeteria import fetch_cafeteria_menu
+from apps.agent.grade_fetcher import fetch_grade_summary, fetch_full_grades
 from apps.agent.session import session_manager
 from apps.agent.usaint import (
     click_in_iframe,
@@ -23,6 +24,10 @@ from apps.agent.usaint import (
     usaint_login,
 )
 
+from apps.user_api.domain.usaint_account.service import get_usaint_account_by_user_id
+from lib.database import get_db
+from lib.security import decrypt_password
+from apps.agent.rag import search_notices
 
 # 상태 정의
 class State(TypedDict):
@@ -415,6 +420,168 @@ class AgentService:
             traceback.print_exc()
             yield {"type": "error", "message": f"오류가 발생했습니다: {str(e)}"}
 
+    # 스케줄러가 호출할 성적 데이터 가져오기
+    async def get_grades_data(
+        self, chat_room_id: int, user_id: int
+    ) -> Optional[str]:
+        """
+        [스케줄러 전용] 유세인트 성적 데이터를 가져옵니다.
+        """
+        print(f"[AgentService] 스케줄러 작업: 성적 데이터 조회 (User: {user_id})")
+        db = next(get_db())
+        try:
+            # DB에서 유세인트 ID/PW 가져오기
+            usaint_account = get_usaint_account_by_user_id(db, user_id)
+            usaint_id = usaint_account.id
+            usaint_pw = decrypt_password(usaint_account.password)
+
+            # 세션 가져오기
+            session = await self._get_or_create_session(chat_room_id, usaint_id, usaint_pw)
+            if not session:
+                raise Exception("세션 생성 또는 로그인에 실패했습니다.")
+
+            # 세션 id 문자열 가져오기
+            session_id_str = self._get_session_id(chat_room_id)
+
+            # 전체 성적 데이터 추출
+            key_data = await fetch_full_grades(session, session_id_str)
+            return key_data
+
+        except Exception as e:
+            print(f"[AgentService] 성적 조회 작업 중 오류: {e}")
+            return None
+        finally:
+             db.close()
+
+    # 스케줄러가 호출할 학식 메뉴 데이터 가져오기
+    async def get_cafeteria_data(
+        self, chat_room_id: int, user_id: int, restaurant_code: int
+    ) -> Optional[str]:
+        """
+        [스케줄러 전용] 학식 메뉴 데이터를 가져옵니다.
+        restaurant_code는 스케줄 DB에 저장된 값을 사용합니다.
+        """
+        from apps.agent.cafeteria import fetch_cafeteria_menu_data
+        from datetime import datetime
+
+        print(f"[AgentService] 스케줄러 작업: 학식 메뉴 조회 (User: {user_id}, Restaurant: {restaurant_code})")
+
+        try:
+            # 오늘 날짜 YYYYMMDD 형식으로
+            today = datetime.now().strftime("%Y%m%d")
+
+            # 학식 메뉴 데이터 가져오기
+            menu_data = fetch_cafeteria_menu_data(restaurant_code, today)
+
+            if not menu_data or not menu_data.get("menus"):
+                print(f"[AgentService] 학식 메뉴를 찾지 못했습니다.")
+                return None
+
+            # 메뉴 정보를 문자열로 변환
+            menu_str = f"{menu_data['restaurant_name']} ({menu_data['date']})\n"
+            for menu in menu_data["menus"]:
+                menu_str += f"- {menu['category']}: {menu['main_dish']}\n"
+
+            return menu_str.strip()
+
+        except Exception as e:
+            print(f"[AgentService] 학식 메뉴 조회 중 오류: {e}")
+            return None
+
+    # 스케줄러가 호출할 장학금 공지사항 데이터 가져오기
+    async def get_scholarship_notice_data(
+        self, chat_room_id: int, user_id: int
+    ) -> Optional[str]:
+        """
+        [스케줄러 전용] 장학금 공지사항 데이터를 가져옵니다.
+        """
+        import requests
+        from bs4 import BeautifulSoup
+
+        print(f"[AgentService] 스케줄러 작업: 장학금 공지사항 조회 (User: {user_id})")
+
+        try:
+            # 스캐치 공지사항 페이지에서 최신 장학금 공지 찾기
+            url = "https://scatch.ssu.ac.kr/공지사항/page/1"
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+
+            # HTML 파싱
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            # notice-lists 클래스를 가진 ul 요소 찾기
+            notice_lists = soup.find("ul", class_="notice-lists")
+
+            if not notice_lists:
+                print(f"[AgentService] 공지사항 목록을 찾을 수 없습니다.")
+                return None
+
+            # 모든 li 요소 찾기
+            list_items = notice_lists.find_all("li")
+
+            scholarship_notices = []
+            for li in list_items:
+                # 헤더 행은 건너뛰기
+                if "notice_head" in li.get("class", []):
+                    continue
+
+                # 제목과 카테고리 추출
+                title_col = li.find("div", class_="notice_col3")
+                if not title_col:
+                    continue
+
+                title_link = title_col.find("a")
+                if not title_link:
+                    continue
+
+                title_text = title_link.get_text(strip=True)
+
+                # 장학 관련 공지만 필터링
+                if "장학" in title_text:
+                    date_col = li.find("div", class_="notice_col1")
+                    date = date_col.get_text(strip=True) if date_col else ""
+
+                    scholarship_notices.append({
+                        "title": title_text,
+                        "date": date,
+                        "url": title_link.get("href", "")
+                    })
+
+            if not scholarship_notices:
+                print(f"[AgentService] 장학금 공지를 찾지 못했습니다.")
+                return None
+
+            # 최신 장학금 공지의 제목 반환 (변경 감지용)
+            latest_notice = scholarship_notices[0]
+            notice_summary = f"{latest_notice['title']} ({latest_notice['date']})"
+
+            print(f"[AgentService] 최신 장학금 공지: {notice_summary}")
+            return notice_summary
+
+        except Exception as e:
+            print(f"[AgentService] 장학금 공지 조회 중 오류: {e}")
+            return None
+
+    async def _get_or_create_session(
+        self, chat_room_id: int, usaint_id: str, usaint_pw: str
+    ):
+        """[스케줄러 전용] 세션을 가져오거나, 없으면 생성하고 로그인합니다."""
+        if not self.playwright:
+            await self.initialize()
+
+        session_id = self._get_session_id(chat_room_id)
+        session = session_manager.get_session(session_id)
+        session.update_activity() # 세션 자동 종료 방지
+
+        # 세션이 없거나, 페이지가 닫혔으면 새로 시작
+        if session.page is None or session.page.is_closed():
+            print(f"[AgentService] 스케줄러용 세션이 없어 새로 시작합니다: {session_id}")
+            await session.start(self.playwright)
+            await usaint_login(session, usaint_id, usaint_pw)
+            print(f"[AgentService] 스케줄러용 로그인 완료: {session_id}")
+        
+        return session
+
     async def close_chat_room_session(self, chat_room_id: int):
         """특정 채팅방의 세션을 종료합니다."""
         session_id = self._get_session_id(chat_room_id)
@@ -428,6 +595,19 @@ class AgentService:
             del session_manager.session_map[session_id]
             print(f"[AgentService] 세션 종료: {session_id}")
 
+
+def get_agent_data_function(task_type: str):
+    """
+    [스케줄러 전용] task_type 문자열을 실제 agent_service 함수 객체로 매핑합니다.
+    """
+    if task_type == "GRADE_CHECK":
+        return agent_service.get_grades_data
+    elif task_type == "CAFETERIA_CHECK":
+        return agent_service.get_cafeteria_data
+    elif task_type == "SCHOLARSHIP_CHECK":
+        return agent_service.get_scholarship_notice_data
+
+    return None # 매핑되는 함수가 없으면 None 반환
 
 # 전역 싱글톤 인스턴스
 agent_service = AgentService()

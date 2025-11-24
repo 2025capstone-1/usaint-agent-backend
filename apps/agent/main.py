@@ -109,7 +109,7 @@ async def main():
         print("Logging in to USAINT...")
         await usaint_login(session, get_env("USAINT_ID"), get_env("USAINT_PASSWORD"))
 
-        question = "장학금 공지사항 찾아줘."
+        question = "내 학적 정보 조회해줘."
 
         # 시스템 메시지와 사용자 질문을 함께 전달
         print(f"\n{'='*50}")
