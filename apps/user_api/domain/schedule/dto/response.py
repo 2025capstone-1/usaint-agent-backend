@@ -10,8 +10,9 @@ from apps.user_api.domain.schedule.entity import Schedule
 class ScheduleResponse(BaseModel):
     schedule_id: int
     cron: str
-    content: str
+    task_type: str
     user_id: int
+    restaurant_code: int | None
     updated_at: datetime
     created_at: datetime
 
@@ -20,8 +21,9 @@ class ScheduleResponse(BaseModel):
         return cls(
             schedule_id=schedule.schedule_id,
             cron=schedule.cron,
-            content=schedule.content,
+            task_type=schedule.task_type,
             user_id=schedule.user_id,
+            restaurant_code=schedule.restaurant_code,
             updated_at=schedule.updated_at,
             created_at=schedule.created_at,
         )

@@ -55,7 +55,7 @@ async def select_navigation_menu(session_id: str, menu_title: str):
 async def _select_navigation_menu(session_id: str, menu_title: str):
     """유세인트 메뉴를 선택합니다."""
     session = session_manager.get_session(session_id)
-    menu = session.page.get_by_role("link", name=menu_title)
+    menu = session.page.get_by_role("link", name=menu_title, exact=True)
     print(f"{menu_title}: {menu}")
     await menu.click()
     await session.page.wait_for_load_state("domcontentloaded", timeout=4 * 1000)
@@ -76,10 +76,48 @@ async def _get_iframe_text_content(session_id: str):
     body = await work_area_frame.query_selector("body")
     to_ignore = await work_area_frame.query_selector("#sapur-aria")
 
+    # 기본 텍스트 가져오기
     body_text = await body.inner_text()
     to_ignore_text = await to_ignore.inner_text()
 
-    return body_text.replace(to_ignore_text, "").replace("\n\n", "\n")
+    # input/select/textarea 요소의 값도 포함
+    input_values = await work_area_frame.evaluate(
+        """
+        () => {
+            const result = [];
+
+            // input 요소들 처리
+            document.querySelectorAll('input:not([type="hidden"])').forEach(input => {
+                if (input.value && !input.hasAttribute('aria-hidden')) {
+                    const label = input.labels?.[0]?.innerText?.trim() ||
+                                  input.getAttribute('aria-label') ||
+                                  input.previousElementSibling?.innerText?.trim() ||
+                                  input.id;
+                    result.push(`${label}: ${input.value}`);
+                }
+            });
+
+            // textarea 요소들 처리
+            document.querySelectorAll('textarea').forEach(textarea => {
+                if (textarea.value && !textarea.hasAttribute('aria-hidden')) {
+                    const label = textarea.labels?.[0]?.innerText?.trim() ||
+                                  textarea.getAttribute('aria-label') ||
+                                  textarea.id;
+                    result.push(`${label}: ${textarea.value}`);
+                }
+            });
+
+            return result.join('\\n');
+        }
+    """
+    )
+
+    # 결과 조합
+    combined_text = body_text.replace(to_ignore_text, "").replace("\n\n", "\n")
+    if input_values:
+        combined_text += "\n\n=== 입력 필드 값 ===\n" + input_values
+
+    return combined_text
 
 
 @tool()

@@ -3,6 +3,7 @@ from sqlalchemy import Column, DateTime, ForeignKey, Integer, Text
 from sqlalchemy.orm import relationship
 from lib.database import Base
 
+
 class ChatRoom(Base):
     __tablename__ = "chat_room"
 
@@ -19,10 +20,9 @@ class ChatRoom(Base):
 
     # Relationships
     user = relationship("User", back_populates="chat_rooms")
-    chats = relationship("Chat", back_populates="chat_room", cascade="all, delete-orphan")
-    # Schedule을 가리키는 'schedules' 속성 정의
-    schedules = relationship("Schedule", back_populates="chat_room", cascade="all, delete-orphan")
-
+    chats = relationship(
+        "Chat", back_populates="chat_room", cascade="all, delete-orphan"
+    )
 
     @staticmethod
     def create(user_id: int, summary: str = None, last_content: str = None):

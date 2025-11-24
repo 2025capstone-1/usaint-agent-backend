@@ -13,6 +13,7 @@ from apps.user_api.domain.usaint_account.entity import UsaintAccount
 from apps.user_api.domain.chat_room.entity import ChatRoom
 from apps.user_api.domain.chat.entity import Chat
 from apps.user_api.domain.schedule.entity import Schedule
+from apps.user_api.domain.notification.entity import PushSubscription, NotificationHistory
 
 def reset_database():
     """

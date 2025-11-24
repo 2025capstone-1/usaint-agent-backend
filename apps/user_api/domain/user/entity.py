@@ -29,6 +29,8 @@ class User(Base):
     )
     schedules = relationship("Schedule", back_populates="user")
     chat_rooms = relationship("ChatRoom", back_populates="user", cascade="all, delete-orphan")
+    push_subscriptions = relationship("PushSubscription", back_populates="user", cascade="all, delete-orphan")
+    notification_history = relationship("NotificationHistory", back_populates="user", cascade="all, delete-orphan")
 
     # Creation
     @classmethod

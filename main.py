@@ -12,11 +12,15 @@ import apps.user_api.domain.chat_room.controller as ChatRoomRouter
 import apps.user_api.domain.schedule.controller as ScheduleRouter
 import apps.user_api.domain.usaint_account.controller as UsaintAccountRouter
 import apps.user_api.domain.user.controller as UserRouter
+import apps.user_api.domain.notification.controller as NotificationRouter
 from apps.agent.agent_service import agent_service
 from apps.agent.session import session_manager
 from apps.user_api.domain.chat.socket_handler import register_socket_handlers
 from apps.user_api.domain.schedule.service import check_and_run_due_schedules
 from lib.database import Base, engine
+
+# Import all models for table creation
+from apps.user_api.domain.notification.entity import PushSubscription
 
 scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
 
@@ -89,6 +93,7 @@ app.include_router(ChatRoomRouter.router, prefix="/chat-room")
 app.include_router(ScheduleRouter.router, prefix="/schedule")
 app.include_router(UsaintAccountRouter.router, prefix="/usaint-account")
 app.include_router(UserRouter.router, prefix="/user")
+app.include_router(NotificationRouter.router, prefix="/notification")
 
 # Socket.io 서버 생성
 sio = socketio.AsyncServer(

@@ -15,15 +15,14 @@ class CreateScheduleRequest(ScheduleRequest):
     cron: str = Field(
         ..., description="Cron expression for the schedule", examples=["0 4 * * *"]
     )
-    content: str = Field(
-        ...,
-        description="Content to be scheduled",
-        examples=["이번 학기 성적표 조회해줘"],
+
+    task_type: str = Field(
+        ..., description="AI가 분류한 작업 타입", examples=["GRADE_CHECK"]
     )
 
-    task_type: str = Field(..., description="AI가 분류한 작업 타입", examples=["GRADE_CHECK"])
-
-    chat_room_id: int = Field(..., description="현재 채팅방 ID", examples=[1])
+    restaurant_code: Optional[int] = Field(
+        None, description="학식 조회용 식당 코드 (1-7)", examples=[1]
+    )
 
     @field_validator("cron")
     @classmethod
@@ -39,19 +38,18 @@ class UpdateScheduleRequest(ScheduleRequest):
         description="Updated cron expression for the schedule",
         examples=["0 4 * * *"],
     )
-    content: Optional[str] = Field(
-        None,
-        description="Updated content to be scheduled",
-        examples=["이번 학기 성적표 조회해줘"],
+
+    restaurant_code: Optional[int] = Field(
+        None, description="학식 조회용 식당 코드 (1-7)", examples=[1]
     )
 
     @field_validator("cron")
     @classmethod
     def validate_cron(cls, v: Optional[str]) -> Optional[str]:
-        # cron이 none일 수도 있으므로 체크 - content만 업데이트할 때 필요
-        if v is None :
+        # cron이 none일 수도 있으므로 체크
+        if v is None:
             return v
-        
+
         if not croniter.is_valid(v):
             raise ValueError(f"Invalid cron expression: {v}")
         return v
